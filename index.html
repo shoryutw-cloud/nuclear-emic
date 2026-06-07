@@ -388,31 +388,27 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
   var key = getActiveKey();
   if (!key) { showKeyReminder(); throw new Error('請先輸入 API Key'); }
   if (provider === 'gemini') {
+    // 依訊息關鍵字偵測電廠，從 Google Drive 快取取得正確知識庫
     var plantKey = getPlantKey(currentPlant);
-    // 依訊息內容偵測電廠關鍵字，自動切換對應 PDF
-    // 優先順序：核三 > 核二 > 核一 > currentPlant
     var msgText = messages.map(function(m){return m.content||'';}).join(' ');
     if (/屏東|核三|恆春|車城|南灣/.test(msgText)) plantKey = 'nuclear3';
     else if (/核二|萬里/.test(msgText)) plantKey = 'nuclear2';
     else if (/核一|石門|三芝/.test(msgText)) plantKey = 'nuclear1';
     else if (/新北/.test(msgText)) plantKey = 'nuclear2';
     else if (/基隆/.test(msgText)) plantKey = 'nuclear1';
-    var sysText = '';
+    var kb = knowledgeCache[plantKey] || driveKnowledge || PLAN_KNOWLEDGE;
+    // 知識庫放 systemInstruction；對話內容放 contents
+    var sysText = '【應變計畫書】\n' + kb.substring(0, 10000) + '\n\n';
     var convMsgs = [];
     messages.forEach(function(m) {
       if (m.role === 'system') sysText += m.content + '\n';
       else convMsgs.push(m);
     });
-    var pdfPart = pdfBase64Cache[plantKey] ? {inline_data:{mime_type:'application/pdf',data:pdfBase64Cache[plantKey]}} : null;
-    var firstUser = true;
     var contents = convMsgs.map(function(m) {
       var role = m.role === 'assistant' ? 'model' : 'user';
-      var parts = [];
-      if (role === 'user' && firstUser && pdfPart) { parts.push(pdfPart); firstUser = false; }
-      parts.push({text: m.content});
-      return {role: role, parts: parts};
+      return {role: role, parts: [{text: m.content}]};
     });
-    if (!contents.length) contents = [{role:'user', parts: pdfPart ? [pdfPart,{text:''}] : [{text:''}]}];
+    if (!contents.length) contents = [{role:'user', parts:[{text:''}]}];
     var body = {
       contents: contents,
       generationConfig: {maxOutputTokens: maxTokens, temperature: temperature}
@@ -1159,10 +1155,18 @@ async function sendQA() {
   var stSummary = allS.map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo = windDir !== null ? document.getElementById('windValue').textContent : '未知';
   var trafficCtx = tdxTrafficSummary ? ('\n即時路況：'+tdxTrafficSummary.substring(0,200)) : '';
+  // 依問題內容選擇正確電廠的知識庫（GROQ/Gemini 共用）
+  var qaKey = getPlantKey(currentPlant);
+  if (/屏東|核三|恆春|車城|南灣/.test(q)) qaKey = 'nuclear3';
+  else if (/核二|萬里/.test(q)) qaKey = 'nuclear2';
+  else if (/核一|石門|三芝/.test(q)) qaKey = 'nuclear1';
+  else if (/新北/.test(q)) qaKey = 'nuclear2';
+  else if (/基隆/.test(q)) qaKey = 'nuclear1';
+  var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
-    '\n\n【計畫書】\n'+getKnowledge().substring(0,8000)+
+    '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。' +
     (routeCtx ? '\n\n' + routeCtx : '');
 
@@ -1544,10 +1548,18 @@ async function sendQA() {
   var stSummary = allS.map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo = windDir !== null ? document.getElementById('windValue').textContent : '未知';
   var trafficCtx = tdxTrafficSummary ? ('\n即時路況：'+tdxTrafficSummary.substring(0,200)) : '';
+  // 依問題內容選擇正確電廠的知識庫（GROQ/Gemini 共用）
+  var qaKey = getPlantKey(currentPlant);
+  if (/屏東|核三|恆春|車城|南灣/.test(q)) qaKey = 'nuclear3';
+  else if (/核二|萬里/.test(q)) qaKey = 'nuclear2';
+  else if (/核一|石門|三芝/.test(q)) qaKey = 'nuclear1';
+  else if (/新北/.test(q)) qaKey = 'nuclear2';
+  else if (/基隆/.test(q)) qaKey = 'nuclear1';
+  var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
-    '\n\n【計畫書】\n'+getKnowledge().substring(0,8000)+
+    '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。' +
     (routeCtx ? '\n\n' + routeCtx : '');
 
@@ -1897,7 +1909,6 @@ window.addEventListener('load',function(){
   if(savedKey)document.getElementById('groqKey').value=savedKey;
   var savedGemKey=sessionStorage.getItem('geminiKey');
   if(savedGemKey)document.getElementById('geminiKey').value=savedGemKey;
-  loadPDFs();
   if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
   initMap();
   setTimeout(function(){if(map)map.invalidateSize();},200);
