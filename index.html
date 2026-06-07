@@ -390,9 +390,13 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
   if (provider === 'gemini') {
     var plantKey = getPlantKey(currentPlant);
     // 依訊息內容偵測電廠關鍵字，自動切換對應 PDF
+    // 優先順序：核三 > 核二 > 核一 > currentPlant
     var msgText = messages.map(function(m){return m.content||'';}).join(' ');
-    if (/屏東|核三|恆春|車城/.test(msgText)) plantKey = 'nuclear3';
-    else if (/基隆|核一|石門|貢寮/.test(msgText)) plantKey = 'nuclear1';
+    if (/屏東|核三|恆春|車城|南灣/.test(msgText)) plantKey = 'nuclear3';
+    else if (/核二|萬里/.test(msgText)) plantKey = 'nuclear2';
+    else if (/核一|石門|三芝/.test(msgText)) plantKey = 'nuclear1';
+    else if (/新北/.test(msgText)) plantKey = 'nuclear2';
+    else if (/基隆/.test(msgText)) plantKey = 'nuclear1';
     var sysText = '';
     var convMsgs = [];
     messages.forEach(function(m) {
