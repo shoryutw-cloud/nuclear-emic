@@ -389,6 +389,10 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
   if (!key) { showKeyReminder(); throw new Error('請先輸入 API Key'); }
   if (provider === 'gemini') {
     var plantKey = getPlantKey(currentPlant);
+    // 依訊息內容偵測電廠關鍵字，自動切換對應 PDF
+    var msgText = messages.map(function(m){return m.content||'';}).join(' ');
+    if (/屏東|核三|恆春|車城/.test(msgText)) plantKey = 'nuclear3';
+    else if (/基隆|核一|石門|貢寮/.test(msgText)) plantKey = 'nuclear1';
     var sysText = '';
     var convMsgs = [];
     messages.forEach(function(m) {
