@@ -140,6 +140,8 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .popup-meta{font-size:12px;color:var(--text-dim)}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+.ai-draw-tooltip{background:#12243a;color:#5dd4c8;border:1px solid #5dd4c8;border-radius:4px;font-size:12px;padding:2px 6px;font-family:var(--mono)}
 </style>
 </head>
 <body>
@@ -268,7 +270,12 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
         <div class="layer-toggle on" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">🏥 輻傷醫院</div>
         <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb">🗺 清除 AI 規劃路線</div>
       </div>
-      <div class="sec-label" style="margin-top:12px">底圖</div>
+      <div class="sec-label" style="margin-top:12px">AI 繪圖</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <div class="layer-toggle on" id="lt-aiDraw" onclick="toggleLayerPanel('aiDraw','lt-aiDraw')">🎨 AI 繪圖圖層</div>
+        <button onclick="clearAIShapes();document.getElementById('lt-aiDraw').classList.add('on')" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:4px;background:#f8fafc;font-size:13px;cursor:pointer;font-family:var(--sans);color:var(--text-dim)">🗑 清除</button>
+      </div>
+      <div class="sec-label">底圖</div>
       <div class="basemap-row">
         <div class="basemap-btn active" id="bm-street"  onclick="switchBasemap('street')">街道</div>
         <div class="basemap-btn" id="bm-imagery" onclick="switchBasemap('imagery')">衛星</div>
@@ -525,6 +532,7 @@ function initMap(){
   baseLayers.topo    =L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© CartoDB',maxZoom:19,subdomains:'abcd'});
   baseLayers.street.addTo(map);
   layerGroups.epz     =L.layerGroup().addTo(map);
+  layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
   layerGroups.station =L.layerGroup().addTo(map);
   layerGroups.route   =L.layerGroup().addTo(map);
@@ -1167,7 +1175,8 @@ async function sendQA() {
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。' +
+    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
+    '請以 JSON 回傳：{"text":"回答內容","draw":[]} ，draw 可空陣列。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
 
   // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
@@ -1560,7 +1569,8 @@ async function sendQA() {
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。' +
+    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
+    '請以 JSON 回傳：{"text":"回答內容","draw":[]} ，draw 可空陣列。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
 
   // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
@@ -1806,15 +1816,21 @@ async function triggerBirdAnalysis(situation, overStations) {
     '2. 說明最佳疏散路線（避開下風向路線）及替代路線\n' +
     '3. 說明碘片服用時機、輻傷醫院\n' +
     '4. 若有次生災害，說明影響\n' +
+    '5. 在 draw 陣列中標示危險區域、下風向疏散範圍\n' +
     '輸出 JSON 格式（僅 JSON）：' +
-    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}]}';
+    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
 
   try {
     var text = await callAI([{role:'user',content:prompt}],1800,0.25,false);
     var clean = text.replace(/```json|```/g,'').trim();
     var j1 = clean.indexOf('{'), j2 = clean.lastIndexOf('}');
     if (j1 < 0) throw new Error('格式錯誤');
-    renderRecommendations(JSON.parse(clean.substring(j1, j2+1)));
+    var parsed = JSON.parse(clean.substring(j1, j2+1));
+    renderRecommendations(parsed);
+    if (parsed.draw && parsed.draw.length) {
+      drawAIShapes(parsed.draw);
+      console.log('AI 繪圖：', parsed.draw.length, '個圖形');
+    }
   } catch(e) {
     document.getElementById('recList').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">AI 分析失敗：' + e.message + '</div>';
   }
@@ -1901,6 +1917,56 @@ async function confirmKnowledgeUpdate(){
 }
 
 // ── 更新 ──────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// AI 地圖繪圖系統（marker / circle / polygon）
+// ══════════════════════════════════════════════════════════════
+var AI_DRAW_RULE = [
+  '【繪圖規則】可在地圖畫出危險區域，draw 陣列格式：',
+  '  circle:{"type":"circle","lat":數字,"lng":數字,"radius":公尺,"label":"文字","color":"#色","fillOpacity":0.15}',
+  '  marker:{"type":"marker","lat":數字,"lng":數字,"label":"文字","color":"#色"}',
+  '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
+  '  顏色：危險#dc2626 警戒#f97316 量測點#1a56db 疏散#16a34a 掩蔽#8b5cf6',
+  '  座標只能用電廠、已知測站或村里的實際座標，禁止假設或虛構數值。',
+  '  下風向偏移：風向W度（正北0順時針），距D公尺，下風向=(W+180)%360',
+  '    rad=下風向×π/180; 目標lat=起點lat+(D/111320)×cos(rad)',
+  '    目標lng=起點lng+(D/111320)×sin(rad)/cos(起點lat×π/180)'
+].join('\n');
+
+function drawAIShapes(items) {
+  if (!map || !items || !items.length) return;
+  layerGroups.aiDraw.clearLayers();
+  items.forEach(function(item) {
+    try {
+      var color = item.color || '#1a56db';
+      if (item.type === 'marker') {
+        var icon = L.divIcon({
+          className: '',
+          html: '<div style="background:'+color+';width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>',
+          iconSize: [14,14], iconAnchor: [7,7]
+        });
+        L.marker([item.lat, item.lng], {icon:icon})
+          .bindTooltip(item.label||'', {permanent:true, direction:'right', className:'ai-draw-tooltip'})
+          .addTo(layerGroups.aiDraw);
+      } else if (item.type === 'circle') {
+        L.circle([item.lat, item.lng], {
+          radius: item.radius||100, color:color, weight:2,
+          fillColor:color, fillOpacity:item.fillOpacity||0.12
+        }).bindTooltip(item.label||'', {sticky:true}).addTo(layerGroups.aiDraw);
+      } else if (item.type === 'polygon') {
+        L.polygon(item.latlngs, {
+          color:color, weight:2,
+          fillColor:color, fillOpacity:item.fillOpacity||0.1
+        }).bindTooltip(item.label||'', {sticky:true}).addTo(layerGroups.aiDraw);
+      }
+    } catch(e) { console.warn('drawAIShapes 項目錯誤:', e.message, item); }
+  });
+}
+
+function clearAIShapes() {
+  if (layerGroups.aiDraw) layerGroups.aiDraw.clearLayers();
+}
+
+
 function refreshData(){if(!simMode)fetchFromSheets();fetchWind();fetchTDXTraffic();}
 
 // ── 啟動（window.load 確保 Leaflet 已載入）─────────────────────
