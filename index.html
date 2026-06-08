@@ -1196,22 +1196,21 @@ async function sendQA() {
       var j1 = clean.indexOf('{');
       var j2 = clean.lastIndexOf('}');
       if (j1 >= 0 && j2 > j1) {
-        var jsonStr = clean.substring(j1, j2+1);
-        // 修正 LLM 常見問題：尾部逗號（trailing comma）
-        jsonStr = jsonStr.replace(/,(\s*[\]\}])/g, '$1');
-        var parsed = JSON.parse(jsonStr);
-        if (parsed.text) displayText = parsed.text;
-        if (Array.isArray(parsed.draw) && parsed.draw.length > 0) drawItems = parsed.draw;
+        var parsed = lenientJSONParse(clean.substring(j1, j2+1));
+        if (parsed && parsed.text) displayText = parsed.text;
+        if (parsed && Array.isArray(parsed.draw) && parsed.draw.length > 0)
+          drawItems = validateAIDrawItems(parsed.draw);
       }
     } catch(pe) {
-      console.warn('QA JSON 解析失敗，嘗試 regex 提取 text', pe.message);
-      // Fallback：用 regex 只抓 text 欄位，至少顯示文字
-      try {
-        var tm = answer.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (tm) displayText = tm[1].replace(/\\n/g,'\n').replace(/\\"/g,'"');
-      } catch(re) {}
+      console.warn('QA JSON 解析失敗', pe.message);
     }
-
+    if (displayText === answer) {
+      try {
+        var clean2 = answer.replace(/```json|```/g,'').trim();
+        var tm = clean2.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (tm) displayText = tm[1].replace(/\\n/g,'\n').replace(/\\"/g,'"');
+      } catch(re2) {}
+    }
     addQAMessage(displayText, 'ai');
     if (drawItems.length > 0) drawAIShapes(drawItems);
 
@@ -1616,14 +1615,21 @@ async function sendQA() {
       var j1 = clean.indexOf('{');
       var j2 = clean.lastIndexOf('}');
       if (j1 >= 0 && j2 > j1) {
-        var parsed = JSON.parse(clean.substring(j1, j2+1));
-        if (parsed.text) displayText = parsed.text;
-        if (Array.isArray(parsed.draw) && parsed.draw.length > 0) drawItems = parsed.draw;
+        var parsed = lenientJSONParse(clean.substring(j1, j2+1));
+        if (parsed && parsed.text) displayText = parsed.text;
+        if (parsed && Array.isArray(parsed.draw) && parsed.draw.length > 0)
+          drawItems = validateAIDrawItems(parsed.draw);
       }
     } catch(pe) {
-      console.warn('QA JSON 解析失敗，顯示原始文字', pe.message);
+      console.warn('QA JSON 解析失敗', pe.message);
     }
-
+    if (displayText === answer) {
+      try {
+        var clean2 = answer.replace(/```json|```/g,'').trim();
+        var tm = clean2.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (tm) displayText = tm[1].replace(/\\n/g,'\n').replace(/\\"/g,'"');
+      } catch(re2) {}
+    }
     addQAMessage(displayText, 'ai');
     if (drawItems.length > 0) drawAIShapes(drawItems);
 
@@ -1964,6 +1970,31 @@ async function confirmKnowledgeUpdate(){
 // ══════════════════════════════════════════════════════════════
 // AI 地圖繪圖系統（marker / circle / polygon）
 // ══════════════════════════════════════════════════════════════
+
+// 容錯 JSON 解析：trailing comma / JS語法 全支援
+function lenientJSONParse(str) {
+  try { return JSON.parse(str); } catch(e) {}
+  var fixed = str.replace(/,(\s*[\]\}])/g, '$1');
+  try { return JSON.parse(fixed); } catch(e) {}
+  fixed = fixed.replace(/\/\/[^\n]*/g, '');
+  try { return JSON.parse(fixed); } catch(e) {}
+  try { return Function('"use strict";return (' + fixed + ')')(); } catch(e) { return null; }
+}
+
+// 驗證 AI 畫圖座標：超出電廠 30km 的標記直接捨棄
+function validateAIDrawItems(items) {
+  return items.filter(function(item) {
+    if (typeof item.lat === 'number' && typeof item.lng === 'number') {
+      var dist = haversine(item.lat, item.lng, currentPlant.lat, currentPlant.lng);
+      if (dist > 30) {
+        console.warn('AI座標超出範圍('+dist.toFixed(1)+'km)，略過：', item.label);
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 var AI_DRAW_RULE = [
   '【繪圖規則】可在地圖畫出危險區域，draw 陣列格式：',
   '  circle:{"type":"circle","lat":數字,"lng":數字,"radius":公尺,"label":"文字","color":"#色","fillOpacity":0.15}',
