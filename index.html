@@ -1186,7 +1186,7 @@ async function sendQA() {
 
   try {
     // 使用小模型 llama-3.1-8b-instant 節省 token
-    var answer = await callAI(messages,600,0.3,true);
+    var answer = await callAI(messages,1500,0.3,true);
 
     // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
     var displayText = answer;
@@ -1525,11 +1525,13 @@ async function detectAndDrawRoute(q) {
 
 
 // ── Nominatim 地名轉座標（OpenStreetMap，免費不需 Key）────────
-async function geocodePlace(placeName) {
+async function geocodePlace(placeName, regionHint) {
+  // regionHint：加地區提示讓 Nominatim 找到正確的台灣地點
+  var query = regionHint ? (placeName + ' ' + regionHint) : (placeName + ' 台灣');
   try {
     var url = 'https://nominatim.openstreetmap.org/search?' +
-      'q=' + encodeURIComponent(placeName + ' 台灣') +
-      '&format=json&limit=1&countrycodes=tw' +
+      'q=' + encodeURIComponent(query) +
+      '&format=json&limit=3&countrycodes=tw' +
       '&accept-language=zh-TW';
     var res = await fetch(url, {
       signal: AbortSignal.timeout(6000),
@@ -1538,12 +1540,17 @@ async function geocodePlace(placeName) {
     if (!res.ok) return null;
     var data = await res.json();
     if (!data || !data[0]) return null;
-    console.log('Nominatim 找到:', placeName, '→', data[0].display_name);
-    return {
-      lat: parseFloat(data[0].lat),
-      lng: parseFloat(data[0].lon),
-      name: placeName
-    };
+    // 若有多筆結果，優先選距電廠最近的
+    var best = data[0];
+    if (data.length > 1) {
+      var minDist = Infinity;
+      data.forEach(function(d) {
+        var dist = haversine(parseFloat(d.lat), parseFloat(d.lon), currentPlant.lat, currentPlant.lng);
+        if (dist < minDist) { minDist = dist; best = d; }
+      });
+    }
+    console.log('Nominatim 找到:', placeName, '→', best.display_name);
+    return { lat: parseFloat(best.lat), lng: parseFloat(best.lon), name: placeName };
   } catch(e) {
     console.warn('Nominatim 查詢失敗:', e.message);
     return null;
@@ -1605,7 +1612,7 @@ async function sendQA() {
 
   try {
     // 使用小模型 llama-3.1-8b-instant 節省 token
-    var answer = await callAI(messages,600,0.3,true);
+    var answer = await callAI(messages,1500,0.3,true);
 
     // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
     var displayText = answer;
@@ -1985,7 +1992,10 @@ function lenientJSONParse(str) {
 async function validateAIDrawItems(items) {
   // 所有 marker 同時送出 Nominatim 請求（平行，不等 rate limit）
   var geoPromises = items.map(function(item) {
-    if (item.type === 'marker' && item.label) return geocodePlace(item.label);
+    if (item.type === 'marker' && item.label) {
+        var region = currentPlant.name ? currentPlant.name.replace('（','').replace('）','').replace('廠','').substring(2) : '新北市';
+        return geocodePlace(item.label, region);
+      }
     return Promise.resolve(null);
   });
   var geoResults = await Promise.all(geoPromises);
