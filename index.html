@@ -1187,10 +1187,29 @@ async function sendQA() {
   try {
     // 使用小模型 llama-3.1-8b-instant 節省 token
     var answer = await callAI(messages,600,0.3,true);
-    addQAMessage(answer, 'ai');
 
-    // 4. 寫 AI 回答到 Sheet
-    saveQAToSheet('assistant', answer);
+    // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
+    var displayText = answer;
+    var drawItems = [];
+    try {
+      var clean = answer.replace(/```json|```/g,'').trim();
+      var j1 = clean.indexOf('{');
+      var j2 = clean.lastIndexOf('}');
+      if (j1 >= 0 && j2 > j1) {
+        var parsed = JSON.parse(clean.substring(j1, j2+1));
+        if (parsed.text) displayText = parsed.text;
+        if (Array.isArray(parsed.draw) && parsed.draw.length > 0) drawItems = parsed.draw;
+      }
+    } catch(pe) {
+      // 解析失敗就直接顯示原始文字
+      console.warn('QA JSON 解析失敗，顯示原始文字', pe.message);
+    }
+
+    addQAMessage(displayText, 'ai');
+    if (drawItems.length > 0) drawAIShapes(drawItems);
+
+    // 4. 寫 AI 回答到 Sheet（存純文字，不存 JSON）
+    saveQAToSheet('assistant', displayText);
 
   } catch(e) {
     addQAMessage('AI 呼叫失敗：'+e.message, 'ai');
@@ -1581,10 +1600,28 @@ async function sendQA() {
   try {
     // 使用小模型 llama-3.1-8b-instant 節省 token
     var answer = await callAI(messages,600,0.3,true);
-    addQAMessage(answer, 'ai');
 
-    // 4. 寫 AI 回答到 Sheet
-    saveQAToSheet('assistant', answer);
+    // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
+    var displayText = answer;
+    var drawItems = [];
+    try {
+      var clean = answer.replace(/```json|```/g,'').trim();
+      var j1 = clean.indexOf('{');
+      var j2 = clean.lastIndexOf('}');
+      if (j1 >= 0 && j2 > j1) {
+        var parsed = JSON.parse(clean.substring(j1, j2+1));
+        if (parsed.text) displayText = parsed.text;
+        if (Array.isArray(parsed.draw) && parsed.draw.length > 0) drawItems = parsed.draw;
+      }
+    } catch(pe) {
+      console.warn('QA JSON 解析失敗，顯示原始文字', pe.message);
+    }
+
+    addQAMessage(displayText, 'ai');
+    if (drawItems.length > 0) drawAIShapes(drawItems);
+
+    // 4. 寫 AI 回答到 Sheet（存純文字）
+    saveQAToSheet('assistant', displayText);
 
   } catch(e) {
     addQAMessage('AI 呼叫失敗：'+e.message, 'ai');
