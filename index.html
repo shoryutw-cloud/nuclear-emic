@@ -1981,18 +1981,71 @@ function lenientJSONParse(str) {
   try { return Function('"use strict";return (' + fixed + ')')(); } catch(e) { return null; }
 }
 
-// 驗證 AI 畫圖座標：超出電廠 30km 的標記直接捨棄
+// 驗證 AI 畫圖座標：先嘗試名稱修正，再過濾超出 50km 的
 function validateAIDrawItems(items) {
-  return items.filter(function(item) {
+  return items.map(function(item) {
+    return fixMarkerCoords(item);
+  }).filter(function(item) {
     if (typeof item.lat === 'number' && typeof item.lng === 'number') {
       var dist = haversine(item.lat, item.lng, currentPlant.lat, currentPlant.lng);
-      if (dist > 30) {
+      if (dist > 50) {
         console.warn('AI座標超出範圍('+dist.toFixed(1)+'km)，略過：', item.label);
         return false;
       }
     }
     return true;
   });
+}
+
+// 核二廠 EPZ 集結點與常用地點座標表（AI 畫圖用）
+var AI_EPZ_COORDS = {
+  // 萬里區集結點
+  '野柳市民活動中心': [25.204, 121.683], '野柳里活動中心': [25.204, 121.683],
+  '萬里區公所':       [25.181, 121.680], '萬里里活動中心': [25.182, 121.679],
+  '圖書館萬里分館':   [25.181, 121.680], '萬里圖書館':     [25.181, 121.680],
+  '孝一街前廣場':     [25.182, 121.678], '北基里':         [25.182, 121.678],
+  '龜吼市民活動中心': [25.133, 121.690], '龜吼里活動中心': [25.133, 121.690],
+  '龜吼福德宮':       [25.133, 121.690],
+  '中幅市民活動中心': [25.160, 121.671], '中幅里':         [25.160, 121.671],
+  '停三停車場':       [25.171, 121.664], '韋馱寺':         [25.172, 121.663],
+  '加投活動中心':     [25.173, 121.661], '大鵬里':         [25.173, 121.661],
+  // 金山區集結點
+  '礦港橋頭':         [25.229, 121.640], '礦港安檢所':     [25.229, 121.640],
+  '金山青年活動中心': [25.226, 121.638], '金山青年':       [25.226, 121.638],
+  '金山國小':         [25.222, 121.635], '美田里':         [25.222, 121.635],
+  '金山高中':         [25.219, 121.634], '金山行政':       [25.225, 121.636],
+  '金山區公所':       [25.225, 121.636], '城內里':         [25.225, 121.636],
+  '金美里活動中心':   [25.224, 121.637],
+  // 石門區、三芝區
+  '石門區公所':       [25.295, 121.565], '石門鄉公所':     [25.295, 121.565],
+  '三芝區公所':       [25.260, 121.502],
+  // 防護站
+  '石門洞防護站':     [25.300, 121.550], '石門洞':         [25.300, 121.550],
+  '基隆防災廣場':     [25.130, 121.740], '基隆市防災廣場': [25.130, 121.740],
+  '基隆棒球場':       [25.133, 121.735],
+  // 電廠
+  '核二廠':           [25.203, 121.663], '核一廠':         [25.297, 121.570],
+};
+
+// 根據 label 名稱修正 AI 畫圖的座標
+function fixMarkerCoords(item) {
+  if (item.type !== 'marker' || !item.label) return item;
+  for (var place in AI_EPZ_COORDS) {
+    if (item.label.indexOf(place) >= 0 || place.indexOf(item.label.substring(0,5)) >= 0) {
+      var coords = AI_EPZ_COORDS[place];
+      console.log('座標修正:', item.label, '→', place, coords);
+      return Object.assign({}, item, { lat: coords[0], lng: coords[1] });
+    }
+  }
+  // 也查 AI_ROUTE_PLACES
+  for (var key in AI_ROUTE_PLACES) {
+    if (item.label.indexOf(key) >= 0) {
+      var p = AI_ROUTE_PLACES[key];
+      console.log('座標修正(ROUTE):', item.label, '→', key);
+      return Object.assign({}, item, { lat: p.lat, lng: p.lng });
+    }
+  }
+  return item;
 }
 
 var AI_DRAW_RULE = [
