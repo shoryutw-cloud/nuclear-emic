@@ -1196,19 +1196,26 @@ async function sendQA() {
       var j1 = clean.indexOf('{');
       var j2 = clean.lastIndexOf('}');
       if (j1 >= 0 && j2 > j1) {
-        var parsed = JSON.parse(clean.substring(j1, j2+1));
+        var jsonStr = clean.substring(j1, j2+1);
+        // 修正 LLM 常見問題：尾部逗號（trailing comma）
+        jsonStr = jsonStr.replace(/,(\s*[\]\}])/g, '$1');
+        var parsed = JSON.parse(jsonStr);
         if (parsed.text) displayText = parsed.text;
         if (Array.isArray(parsed.draw) && parsed.draw.length > 0) drawItems = parsed.draw;
       }
     } catch(pe) {
-      // 解析失敗就直接顯示原始文字
-      console.warn('QA JSON 解析失敗，顯示原始文字', pe.message);
+      console.warn('QA JSON 解析失敗，嘗試 regex 提取 text', pe.message);
+      // Fallback：用 regex 只抓 text 欄位，至少顯示文字
+      try {
+        var tm = answer.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+        if (tm) displayText = tm[1].replace(/\\n/g,'\n').replace(/\\"/g,'"');
+      } catch(re) {}
     }
 
     addQAMessage(displayText, 'ai');
     if (drawItems.length > 0) drawAIShapes(drawItems);
 
-    // 4. 寫 AI 回答到 Sheet（存純文字，不存 JSON）
+    // 4. 寫 AI 回答到 Sheet（存純文字）
     saveQAToSheet('assistant', displayText);
 
   } catch(e) {
