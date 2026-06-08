@@ -1176,7 +1176,7 @@ async function sendQA() {
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
-    '請以 JSON 回傳：{"text":"回答內容","draw":[]} ，draw 可空陣列。\n\n' + AI_DRAW_RULE +
+    '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
 
   // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
@@ -1595,7 +1595,7 @@ async function sendQA() {
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
-    '請以 JSON 回傳：{"text":"回答內容","draw":[]} ，draw 可空陣列。\n\n' + AI_DRAW_RULE +
+    '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
 
   // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
@@ -1981,38 +1981,39 @@ function lenientJSONParse(str) {
   try { return Function('"use strict";return (' + fixed + ')')(); } catch(e) { return null; }
 }
 
-// 驗證 AI 畫圖座標：永遠用 Nominatim geocode label（最準確），失敗才 fallback 本地表
+// 驗證 AI 畫圖座標：平行 Nominatim geocode，失敗用本地表
 async function validateAIDrawItems(items) {
+  // 所有 marker 同時送出 Nominatim 請求（平行，不等 rate limit）
+  var geoPromises = items.map(function(item) {
+    if (item.type === 'marker' && item.label) return geocodePlace(item.label);
+    return Promise.resolve(null);
+  });
+  var geoResults = await Promise.all(geoPromises);
+
   var results = [];
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
-    if (item.type === 'marker' && item.label) {
-      // Nominatim rate limit: 1 req/sec
-      if (i > 0) await new Promise(function(r){ setTimeout(r, 1100); });
-      var geo = await geocodePlace(item.label);
+    var geo = geoResults[i];
+
+    if (item.type === 'marker') {
       if (geo) {
         var geoDist = haversine(geo.lat, geo.lng, currentPlant.lat, currentPlant.lng);
         if (geoDist <= 80) {
           item = Object.assign({}, item, { lat: geo.lat, lng: geo.lng });
-          console.log('Nominatim 定位成功:', item.label, geo.lat, geo.lng);
+          console.log('Nominatim 定位:', item.label, geo.lat, geo.lng);
         } else {
-          // Nominatim 找到的不在附近，換用本地表
-          item = fixMarkerCoords(item);
-          console.warn('Nominatim 結果太遠('+geoDist.toFixed(1)+'km)，改用本地表:', item.label);
+          item = fixMarkerCoords(item); // Nominatim 找到但太遠，用本地表
         }
       } else {
-        // Nominatim 查無結果，用本地表
-        item = fixMarkerCoords(item);
-        console.warn('Nominatim 查無結果，用本地表:', item.label);
+        item = fixMarkerCoords(item); // Nominatim 查無，用本地表
+        console.warn('Nominatim 查無，本地表 fallback:', item.label);
       }
     }
+
     // 最終距離過濾
     if (typeof item.lat === 'number' && typeof item.lng === 'number') {
       var dist = haversine(item.lat, item.lng, currentPlant.lat, currentPlant.lng);
-      if (dist > 80) {
-        console.warn('超出80km，略過:', item.label, dist.toFixed(1)+'km');
-        continue;
-      }
+      if (dist > 80) { console.warn('超出80km略過:', item.label); continue; }
     }
     results.push(item);
   }
