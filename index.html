@@ -1199,7 +1199,7 @@ async function sendQA() {
         var parsed = lenientJSONParse(clean.substring(j1, j2+1));
         if (parsed && parsed.text) displayText = parsed.text;
         if (parsed && Array.isArray(parsed.draw) && parsed.draw.length > 0)
-          drawItems = validateAIDrawItems(parsed.draw);
+          drawItems = await validateAIDrawItems(parsed.draw);
       }
     } catch(pe) {
       console.warn('QA JSON 解析失敗', pe.message);
@@ -1618,7 +1618,7 @@ async function sendQA() {
         var parsed = lenientJSONParse(clean.substring(j1, j2+1));
         if (parsed && parsed.text) displayText = parsed.text;
         if (parsed && Array.isArray(parsed.draw) && parsed.draw.length > 0)
-          drawItems = validateAIDrawItems(parsed.draw);
+          drawItems = await validateAIDrawItems(parsed.draw);
       }
     } catch(pe) {
       console.warn('QA JSON 解析失敗', pe.message);
@@ -1981,20 +1981,37 @@ function lenientJSONParse(str) {
   try { return Function('"use strict";return (' + fixed + ')')(); } catch(e) { return null; }
 }
 
-// 驗證 AI 畫圖座標：先嘗試名稱修正，再過濾超出 50km 的
-function validateAIDrawItems(items) {
-  return items.map(function(item) {
-    return fixMarkerCoords(item);
-  }).filter(function(item) {
-    if (typeof item.lat === 'number' && typeof item.lng === 'number') {
+// 驗證 AI 畫圖座標：本地表 → Nominatim geocode → 距離過濾
+async function validateAIDrawItems(items) {
+  var results = [];
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    // 1. 先用本地座標表修正
+    item = fixMarkerCoords(item);
+    // 2. 若仍超出 50km 且有 label，嘗試 Nominatim geocode
+    if (item.type === 'marker' && item.label) {
       var dist = haversine(item.lat, item.lng, currentPlant.lat, currentPlant.lng);
       if (dist > 50) {
-        console.warn('AI座標超出範圍('+dist.toFixed(1)+'km)，略過：', item.label);
-        return false;
+        console.log('座標超出範圍，嘗試 Nominatim 查詢:', item.label);
+        var geo = await geocodePlace(item.label);
+        if (geo) {
+          var newDist = haversine(geo.lat, geo.lng, currentPlant.lat, currentPlant.lng);
+          if (newDist <= 80) {
+            item = Object.assign({}, item, { lat: geo.lat, lng: geo.lng });
+            console.log('Nominatim 修正成功:', item.label, geo.lat, geo.lng);
+          } else {
+            console.warn('Nominatim 結果仍超出範圍('+newDist.toFixed(1)+'km)，略過:', item.label);
+            continue;
+          }
+        } else {
+          console.warn('Nominatim 查無結果，略過:', item.label);
+          continue;
+        }
       }
     }
-    return true;
-  });
+    results.push(item);
+  }
+  return results;
 }
 
 // 核二廠 EPZ 集結點與常用地點座標表（AI 畫圖用）
