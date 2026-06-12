@@ -24,6 +24,12 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .nav-key-wrap{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.25);border:1px solid rgba(93,212,200,0.2);border-radius:4px;padding:4px 10px;margin-left:auto}
 .nav-key-wrap label{font-size:14px;color:rgba(255,255,255,0.6);font-family:var(--mono)}
 .nav-key-wrap input{background:none;border:none;outline:none;color:#fff;font-family:var(--mono);font-size:14px;width:130px}
+.nav-search{display:flex;align-items:center;gap:4px;background:rgba(0,0,0,0.25);border:1px solid rgba(93,212,200,0.2);border-radius:4px;padding:3px 10px;margin:0 8px;flex-shrink:0;transition:border-color .2s}
+.nav-search:focus-within{border-color:rgba(93,212,200,0.6)}
+.nav-search input{background:none;border:none;outline:none;color:#fff;font-family:var(--sans);font-size:13px;width:160px}
+.nav-search input::placeholder{color:rgba(255,255,255,0.35)}
+.nav-search-btn{background:none;border:none;cursor:pointer;color:rgba(93,212,200,0.7);font-size:15px;padding:0;line-height:1;transition:color .2s}
+.nav-search-btn:hover{color:var(--teal)}
 .ai-provider-toggle{display:flex;border:1px solid rgba(93,212,200,0.35);border-radius:4px;overflow:hidden;flex-shrink:0}
 .ai-prov-btn{background:none;border:none;color:rgba(255,255,255,0.45);font-size:11px;padding:3px 8px;cursor:pointer;font-family:var(--mono);transition:all .15s;white-space:nowrap}
 .ai-prov-btn.active{background:rgba(93,212,200,0.25);color:#5dd4c8}
@@ -173,6 +179,10 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   <span class="nav-item" onclick="openModal('upload')">現場上傳</span>
   <span class="nav-item" onclick="openModal('layers')">圖層控制</span>
   <span class="nav-item danger" onclick="simulateAccident()">模擬情境</span>
+  <div class="nav-search">
+    <input type="text" id="mapSearchInput" placeholder="搜尋地點..." onkeydown="if(event.key==='Enter')searchMap()"/>
+    <button class="nav-search-btn" onclick="searchMap()" title="搜尋">🔍</button>
+  </div>
   <div class="nav-key-wrap">
     <div class="ai-provider-toggle"><button id="btn-groq" class="ai-prov-btn active" onclick="switchAIProvider('groq')">GROQ</button><button id="btn-gemini" class="ai-prov-btn" onclick="switchAIProvider('gemini')">Gemini</button></div>
     <input type="hidden" id="aiProvider" value="groq"/>
@@ -2322,6 +2332,39 @@ async function loadRoadblocks(){
 // 5=防護站 6=防護站座標 7=預估人數 8=里別小計
 // 9=收容所 10=收容所座標 11=備註
 var evacLoaded=false;
+var _searchMarker=null;
+
+async function searchMap(){
+  var input=document.getElementById('mapSearchInput');
+  var q=input.value.trim();
+  if(!q) return;
+  input.disabled=true;
+  try{
+    var url='https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=tw&accept-language=zh-TW&q='+encodeURIComponent(q);
+    var resp=await fetch(url);
+    var results=await resp.json();
+    // 優先選台灣境內結果
+    var r=results[0];
+    if(!r){
+      input.placeholder='找不到「'+q+'」';
+      input.value='';
+      setTimeout(function(){input.placeholder='搜尋地點...';},2500);
+      return;
+    }
+    var lat=parseFloat(r.lat),lng=parseFloat(r.lon);
+    map.setView([lat,lng],16);
+    if(_searchMarker) map.removeLayer(_searchMarker);
+    var label=r.display_name.split(',')[0];
+    _searchMarker=L.marker([lat,lng],{
+      icon:L.divIcon({className:'',html:'<div style="background:#0077cc;color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;font-family:var(--sans);white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3)">📍 '+label+'</div>',iconAnchor:[0,10]})
+    }).addTo(map);
+    input.value='';
+  }catch(e){
+    console.warn('searchMap error:',e.message);
+  }
+  input.disabled=false;
+  input.focus();
+}
 
 function toggleEvacPanel(){
   var p=document.getElementById('evacPanel');
