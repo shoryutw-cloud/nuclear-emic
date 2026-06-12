@@ -2465,9 +2465,11 @@ async function loadEvacuationData(){
       var text=await resp.text();
       var rows=parseFullCSV(text);
       var data=parseEvacData(rows);
-      total+=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點');
-      total+=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站');
-      total+=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所');
+      var cm=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點');
+      var cs=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站');
+      var cr=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所');
+      console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr,'shelterArr:',data.shelters);
+      total+=cm+cs+cr;
     }catch(e){
       console.error('evac',pl.tab,e);
       setStatus(label+' 載入失敗');
