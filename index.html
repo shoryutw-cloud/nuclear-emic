@@ -2567,6 +2567,7 @@ window.addEventListener('load',function(){
   setTimeout(function(){ fetchKnowledge('nuclear3'); }, 3000); // 背景預載核三廠
   setTimeout(function(){ fetchKnowledge('nuclear1'); }, 6000); // 背景預載核一廠
   fetchFromSheets();
+  setTimeout(function(){ loadEvacuationData(); }, 2000); // 背景預載疏散地點（圖層仍關閉）
   fetchWind();
   setInterval(fetchFromSheets, 5 * 1000); // 每5秒
   // TDX 路況改為手動更新（按↻），不自動呼叫以節省用量
