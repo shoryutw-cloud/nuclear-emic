@@ -2248,8 +2248,7 @@ function doAddRoadblock(){
   var lat=_ctxLatLng.lat, lng=_ctxLatLng.lng;
   var id=Date.now();
   addRoadblockMarker(id,lat,lng);
-  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'add_roadblock',id:id,lat:lat,lng:lng})
+  fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({action:'add_roadblock',id:id,lat:lat,lng:lng})
   }).then(function(r){return r.json();})
   .then(function(d){
     if(d&&d.success) showRoadblockToast('✓ 路障已寫入 Sheet',true);
@@ -2264,7 +2263,7 @@ function doDeleteRoadblock(){
   var marker=_ctxPendingMarker, id=_ctxPendingId;
   _ctxPendingMarker=null; _ctxPendingId=null;
   layerGroups.roadblock.removeLayer(marker);
-  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+  fetch(WEBAPP_URL,{method:'POST',
     body:JSON.stringify({action:'delete_roadblock',id:id})
   }).then(function(r){return r.json();})
   .then(function(d){
