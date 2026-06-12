@@ -200,26 +200,26 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   <div id="evacPanel" class="evac-panel">
     <div class="evac-section-label">☢ 核一廠</div>
     <div class="evac-row">
-      <div class="evac-toggle on" id="evac-meeting1" onclick="toggleEvacLayer('1','meeting')" title="集結點">
+      <div class="evac-toggle" id="evac-meeting1" onclick="toggleEvacLayer('1','meeting')" title="集結點">
         <img src="Meetingpoint.png" alt=""><span>集結點</span>
       </div>
-      <div class="evac-toggle on" id="evac-shield1" onclick="toggleEvacLayer('1','shield')" title="防護站">
+      <div class="evac-toggle" id="evac-shield1" onclick="toggleEvacLayer('1','shield')" title="防護站">
         <img src="shield.png" alt=""><span>防護站</span>
       </div>
-      <div class="evac-toggle on" id="evac-shelter1" onclick="toggleEvacLayer('1','shelter')" title="收容所">
+      <div class="evac-toggle" id="evac-shelter1" onclick="toggleEvacLayer('1','shelter')" title="收容所">
         <img src="shelter.png" alt=""><span>收容所</span>
       </div>
     </div>
     <div class="evac-divider"></div>
     <div class="evac-section-label">☢ 核二廠</div>
     <div class="evac-row">
-      <div class="evac-toggle on" id="evac-meeting2" onclick="toggleEvacLayer('2','meeting')" title="集結點">
+      <div class="evac-toggle" id="evac-meeting2" onclick="toggleEvacLayer('2','meeting')" title="集結點">
         <img src="Meetingpoint.png" alt=""><span>集結點</span>
       </div>
-      <div class="evac-toggle on" id="evac-shield2" onclick="toggleEvacLayer('2','shield')" title="防護站">
+      <div class="evac-toggle" id="evac-shield2" onclick="toggleEvacLayer('2','shield')" title="防護站">
         <img src="shield.png" alt=""><span>防護站</span>
       </div>
-      <div class="evac-toggle on" id="evac-shelter2" onclick="toggleEvacLayer('2','shelter')" title="收容所">
+      <div class="evac-toggle" id="evac-shelter2" onclick="toggleEvacLayer('2','shelter')" title="收容所">
         <img src="shelter.png" alt=""><span>收容所</span>
       </div>
     </div>
@@ -594,12 +594,12 @@ function initMap(){
   layerGroups.route   =L.layerGroup().addTo(map);
   layerGroups.hospital=L.layerGroup().addTo(map);
   layerGroups.manual  =L.layerGroup().addTo(map);
-  layerGroups.meeting1=L.layerGroup().addTo(map);
-  layerGroups.shield1 =L.layerGroup().addTo(map);
-  layerGroups.shelter1=L.layerGroup().addTo(map);
-  layerGroups.meeting2=L.layerGroup().addTo(map);
-  layerGroups.shield2 =L.layerGroup().addTo(map);
-  layerGroups.shelter2=L.layerGroup().addTo(map);
+  layerGroups.meeting1=L.layerGroup();
+  layerGroups.shield1 =L.layerGroup();
+  layerGroups.shelter1=L.layerGroup();
+  layerGroups.meeting2=L.layerGroup();
+  layerGroups.shield2 =L.layerGroup();
+  layerGroups.shelter2=L.layerGroup();
   layerGroups.roadblock=L.layerGroup().addTo(map);
   map.on('contextmenu',function(e){
     L.DomEvent.preventDefault(e.originalEvent);
