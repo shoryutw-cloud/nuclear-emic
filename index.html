@@ -2232,6 +2232,16 @@ function addRoadblockMarker(id,lat,lng){
   return marker;
 }
 
+function showRoadblockToast(msg, ok){
+  var t=document.getElementById('keyToast');
+  if(!t) return;
+  t.textContent=msg;
+  t.style.background=ok?'#16a34a':'#dc2626';
+  t.style.display='block';
+  clearTimeout(t._rbTimer);
+  t._rbTimer=setTimeout(function(){t.style.display='none';},3000);
+}
+
 function doAddRoadblock(){
   hideMapCtxMenu();
   if(!_ctxLatLng) return;
@@ -2240,17 +2250,28 @@ function doAddRoadblock(){
   addRoadblockMarker(id,lat,lng);
   fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'add_roadblock',id:id,lat:lat,lng:lng})
-  }).catch(function(e){console.warn('roadblock write failed',e);});
+  }).then(function(r){return r.json();})
+  .then(function(d){
+    if(d&&d.success) showRoadblockToast('✓ 路障已寫入 Sheet',true);
+    else showRoadblockToast('✗ 寫入失敗：'+(d&&d.error||JSON.stringify(d)),false);
+  })
+  .catch(function(e){showRoadblockToast('✗ 連線失敗：'+e.message,false);});
 }
 
 function doDeleteRoadblock(){
   hideMapCtxMenu();
   if(!_ctxPendingMarker||!_ctxPendingId) return;
-  layerGroups.roadblock.removeLayer(_ctxPendingMarker);
-  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'delete_roadblock',id:_ctxPendingId})
-  }).catch(function(e){console.warn('roadblock delete failed',e);});
+  var marker=_ctxPendingMarker, id=_ctxPendingId;
   _ctxPendingMarker=null; _ctxPendingId=null;
+  layerGroups.roadblock.removeLayer(marker);
+  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'delete_roadblock',id:id})
+  }).then(function(r){return r.json();})
+  .then(function(d){
+    if(d&&d.success) showRoadblockToast('✓ 路障已從 Sheet 刪除',true);
+    else showRoadblockToast('✗ 刪除失敗：'+(d&&d.error||JSON.stringify(d)),false);
+  })
+  .catch(function(e){showRoadblockToast('✗ 連線失敗：'+e.message,false);});
 }
 
 async function loadRoadblocks(){
