@@ -1124,10 +1124,13 @@ async function detectAndDrawRoute(q) {
 
   // 讓 Groq 判斷這句話是否需要畫路線，起點和終點是什麼
   // 用小模型快速判斷，不消耗太多 token
+  // 動態加入 Sheet 防護站名稱
+  var shieldNames = evacSheetData.shields.slice(0,8).map(function(s){return s.name;}).join('、');
   var parsePrompt = '判斷以下問句是否需要地圖路線規劃。\n' +
     '已知地點清單：核一廠、核二廠、核三廠、石門防護站、基隆防護站、基隆棒球場、' +
     '淡水馬偕醫院、基隆長庚醫院、部立基隆醫院、北海岸金山醫院、台北馬偕醫院、林口長庚醫院、台北榮總、' +
-    '三重體育館、新莊體育館、板橋體育館、泰山體育館、三芝區公所、野柳、金山、萬里、石門、淡水、基隆\n\n' +
+    '三重體育館、新莊體育館、板橋體育館、泰山體育館、三芝區公所、野柳、金山、萬里、石門、淡水、基隆' +
+    (shieldNames ? '、'+shieldNames : '') + '\n\n' +
     '問句：「' + q + '」\n\n' +
     '請輸出 JSON（只輸出 JSON，不要其他文字）：\n' +
     '{"need_route": true/false, "origin": "起點名稱或null", "destination": "終點名稱或null"}\n\n' +
@@ -1183,26 +1186,46 @@ async function detectAndDrawRoute(q) {
 // 從已知地點清單查座標
 function findPlaceCoords(name) {
   if (!name || name === 'null') return null;
-  // 直接比對
+  // 1. 寫死的地點表
   for (var key in AI_ROUTE_PLACES) {
     if (name.indexOf(key) >= 0 || key.indexOf(name) >= 0) return AI_ROUTE_PLACES[key];
   }
-  // 醫院比對
+  // 2. 醫院
   for (var i = 0; i < AI_ROUTE_HOSPITALS.length; i++) {
     var h = AI_ROUTE_HOSPITALS[i];
     if (name.indexOf(h.name.replace('醫院','')) >= 0 || h.name.indexOf(name) >= 0) {
       return { lat: h.lat, lng: h.lng, name: h.name };
     }
   }
+  // 3. Sheet 防護站
+  for (var j = 0; j < evacSheetData.shields.length; j++) {
+    var s = evacSheetData.shields[j];
+    if (s.lat && s.lng && s.name && (name.indexOf(s.name) >= 0 || s.name.indexOf(name) >= 0))
+      return { lat: s.lat, lng: s.lng, name: s.name };
+  }
+  // 4. Sheet 收容所
+  for (var k = 0; k < evacSheetData.shelters.length; k++) {
+    var r = evacSheetData.shelters[k];
+    if (r.lat && r.lng && r.name && (name.indexOf(r.name) >= 0 || r.name.indexOf(name) >= 0))
+      return { lat: r.lat, lng: r.lng, name: r.name };
+  }
+  // 5. Sheet 集結點
+  for (var m = 0; m < evacSheetData.meetings.length; m++) {
+    var mt = evacSheetData.meetings[m];
+    if (mt.lat && mt.lng && mt.name && (name.indexOf(mt.name) >= 0 || mt.name.indexOf(name) >= 0))
+      return { lat: mt.lat, lng: mt.lng, name: mt.name };
+  }
   return null;
 }
 
-// 找最近防護站
+// 找最近防護站（優先用 Sheet 資料，否則用內建）
 function findNearestProtectionStation(lat, lng) {
-  var stations = [
+  var stations = evacSheetData.shields.length > 0 ? evacSheetData.shields : [
     { name:'石門洞防護站（西行）', lat:25.300, lng:121.550 },
     { name:'基隆市防災廣場（東行）', lat:25.130, lng:121.740 },
   ];
+  stations = stations.filter(function(s){ return s.lat && s.lng; });
+  if (!stations.length) return null;
   return stations.reduce(function(a,b){
     return haversine(lat,lng,a.lat,a.lng) < haversine(lat,lng,b.lat,b.lng) ? a : b;
   });
@@ -2333,6 +2356,8 @@ async function loadRoadblocks(){
 // 9=收容所 10=收容所座標 11=備註
 var evacLoaded=false;
 var _searchMarker=null;
+// Sheet 讀進來的疏散資料，供 AI 路線查詢使用
+var evacSheetData={shields:[],shelters:[],meetings:[]};
 
 async function searchMap(){
   var input=document.getElementById('mapSearchInput');
@@ -2511,7 +2536,11 @@ async function loadEvacuationData(){
       var cm=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點');
       var cs=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站');
       var cr=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所');
-      console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr,'shelterArr:',data.shelters);
+      console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr);
+      // 存入全域，供 AI 路線查詢使用
+      evacSheetData.shields  = evacSheetData.shields.concat(data.shields);
+      evacSheetData.shelters = evacSheetData.shelters.concat(data.shelters);
+      evacSheetData.meetings = evacSheetData.meetings.concat(data.meetings);
       total+=cm+cs+cr;
     }catch(e){
       console.error('evac',pl.tab,e);
