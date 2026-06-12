@@ -142,6 +142,17 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
 .ai-draw-tooltip{background:#12243a;color:#5dd4c8;border:1px solid #5dd4c8;border-radius:4px;font-size:12px;padding:2px 6px;font-family:var(--mono)}
+
+.evac-panel{position:fixed;top:50px;left:62px;z-index:999;background:rgba(255,255,255,0.97);border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:8px 10px;width:172px;display:none}
+.evac-panel.open{display:block}
+.evac-section-label{font-size:10px;font-weight:700;color:var(--navy);letter-spacing:0.8px;padding:3px 0 5px}
+.evac-row{display:flex;gap:4px;margin-bottom:5px}
+.evac-toggle{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border:1px solid var(--border);border-radius:5px;cursor:pointer;background:#f8fafc;transition:all 0.2s;font-size:9px;color:var(--text-dim);text-align:center;line-height:1.3;user-select:none}
+.evac-toggle img{width:22px;height:22px;opacity:0.35;transition:opacity 0.2s}
+.evac-toggle.on{border-color:var(--accent);background:rgba(0,119,204,0.07);color:var(--accent)}
+.evac-toggle.on img{opacity:1}
+.evac-divider{height:1px;background:var(--border);margin:3px 0 6px}
+.evac-status{font-size:9px;color:var(--text-dim);text-align:center;padding-top:3px;min-height:14px}
 </style>
 </head>
 <body>
@@ -173,9 +184,41 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     <button class="tool-btn" id="btnLayerStation"  onclick="toggleTool('station',this)" title="測站">測站</button>
     <button class="tool-btn" id="btnLayerRoute"    onclick="toggleTool('route',this)"   title="路線">路線</button>
     <button class="tool-btn" id="btnLayerHospital" onclick="toggleTool('hospital',this)" title="醫院">醫院</button>
+    <button class="tool-btn" id="btnEvacPanel" onclick="toggleEvacPanel()" title="避難疏散點">疏散</button>
     <div class="tool-divider"></div>
     <button class="tool-btn" onclick="refreshData()" style="font-size:16px" title="更新">↻</button>
   </div>
+
+  <!-- 避難疏散圖層面板 -->
+  <div id="evacPanel" class="evac-panel">
+    <div class="evac-section-label">☢ 核一廠</div>
+    <div class="evac-row">
+      <div class="evac-toggle on" id="evac-meeting1" onclick="toggleEvacLayer('1','meeting')" title="集結點">
+        <img src="Meetingpoint.png" alt=""><span>集結點</span>
+      </div>
+      <div class="evac-toggle on" id="evac-shield1" onclick="toggleEvacLayer('1','shield')" title="防護站">
+        <img src="shield.png" alt=""><span>防護站</span>
+      </div>
+      <div class="evac-toggle on" id="evac-shelter1" onclick="toggleEvacLayer('1','shelter')" title="收容所">
+        <img src="shelter.png" alt=""><span>收容所</span>
+      </div>
+    </div>
+    <div class="evac-divider"></div>
+    <div class="evac-section-label">☢ 核二廠</div>
+    <div class="evac-row">
+      <div class="evac-toggle on" id="evac-meeting2" onclick="toggleEvacLayer('2','meeting')" title="集結點">
+        <img src="Meetingpoint.png" alt=""><span>集結點</span>
+      </div>
+      <div class="evac-toggle on" id="evac-shield2" onclick="toggleEvacLayer('2','shield')" title="防護站">
+        <img src="shield.png" alt=""><span>防護站</span>
+      </div>
+      <div class="evac-toggle on" id="evac-shelter2" onclick="toggleEvacLayer('2','shelter')" title="收容所">
+        <img src="shelter.png" alt=""><span>收容所</span>
+      </div>
+    </div>
+    <div class="evac-status" id="evacStatus">點「疏散」開啟此面板</div>
+  </div>
+
   <div class="bottom-bar"><span id="coordsDisplay">121.66250, 25.20278</span></div>
 
   <!-- 浮動 AI 鳥（在地圖內，absolute 定位） -->
@@ -538,6 +581,12 @@ function initMap(){
   layerGroups.route   =L.layerGroup().addTo(map);
   layerGroups.hospital=L.layerGroup().addTo(map);
   layerGroups.manual  =L.layerGroup().addTo(map);
+  layerGroups.meeting1=L.layerGroup().addTo(map);
+  layerGroups.shield1 =L.layerGroup().addTo(map);
+  layerGroups.shelter1=L.layerGroup().addTo(map);
+  layerGroups.meeting2=L.layerGroup().addTo(map);
+  layerGroups.shield2 =L.layerGroup().addTo(map);
+  layerGroups.shelter2=L.layerGroup().addTo(map);
   drawEPZ();drawRoutes(null,null);drawHospitals();drawStations(DEFAULT_STATIONS);
   var mapEl=document.getElementById('map');
   mapEl.addEventListener('mousemove',function(e){
@@ -2129,6 +2178,156 @@ function clearAIShapes() {
 
 
 function refreshData(){if(!simMode)fetchFromSheets();fetchWind();fetchTDXTraffic();}
+
+// ── 避難疏散圖層 ─────────────────────────────────────────────────
+var evacGeoCache={};
+var evacLoaded=false;
+
+function toggleEvacPanel(){
+  var p=document.getElementById('evacPanel');
+  var b=document.getElementById('btnEvacPanel');
+  var opened=p.classList.toggle('open');
+  b.classList.toggle('active',opened);
+  if(opened&&!evacLoaded) loadEvacuationData();
+}
+
+function toggleEvacLayer(plant,type){
+  var key=type+plant;
+  var lg=layerGroups[key];
+  var el=document.getElementById('evac-'+key);
+  if(!lg||!el) return;
+  if(map.hasLayer(lg)){map.removeLayer(lg);el.classList.remove('on');}
+  else{map.addLayer(lg);el.classList.add('on');}
+}
+
+function extractEvacName(s){
+  return s?s.replace(/\(\d+\.?\d*公里\)/g,'').replace(/^\d+\./,'').trim():'';
+}
+
+function parseFullCSV(text){
+  var rows=[],row=[],cur='',inQ=false;
+  for(var i=0;i<text.length;i++){
+    var c=text[i],nx=text[i+1];
+    if(inQ){
+      if(c==='"'){if(nx==='"'){cur+='"';i++;}else inQ=false;}
+      else cur+=c;
+    } else {
+      if(c==='"'){inQ=true;}
+      else if(c===','){row.push(cur);cur='';}
+      else if(c==='\r'&&nx==='\n'){row.push(cur);cur='';rows.push(row);row=[];i++;}
+      else if(c==='\n'||c==='\r'){row.push(cur);cur='';rows.push(row);row=[];}
+      else cur+=c;
+    }
+  }
+  if(cur||row.length>0){row.push(cur);rows.push(row);}
+  return rows;
+}
+
+function parseEvacData(rows){
+  var meetings=[],shields={},shelters={};
+  var lastCity='',lastDist='',lastBoro='',lastShield='',lastShelter='';
+  for(var i=1;i<rows.length;i++){
+    var r=rows[i];
+    if(!r||r.length<5) continue;
+    if(r[0]&&r[0].trim()) lastCity=r[0].trim();
+    if(r[1]&&r[1].trim()) lastDist=r[1].trim();
+    if(r[2]&&r[2].trim()) lastBoro=r[2].trim().replace(/\*/g,'');
+    if(r[4]&&r[4].trim()) lastShield=r[4].trim();
+    if(r[8]&&r[8].trim()) lastShelter=r[8].trim();
+    var mtg=r[3]?r[3].trim():'';
+    if(!mtg) continue;
+    meetings.push({name:mtg,city:lastCity,dist:lastDist,boro:lastBoro});
+    var sn=extractEvacName(lastShield);
+    if(sn&&!shields[sn]) shields[sn]={name:sn,dist:lastDist};
+    var shelterParts=lastShelter.split(/\d+\./);
+    shelterParts.forEach(function(p){
+      var n=extractEvacName(p);
+      if(n&&!shelters[n]) shelters[n]={name:n};
+    });
+  }
+  var shieldArr=[],shelterArr=[];
+  for(var k in shields) shieldArr.push(shields[k]);
+  for(var k in shelters) shelterArr.push(shelters[k]);
+  return{meetings:meetings,shields:shieldArr,shelters:shelterArr};
+}
+
+async function geocodeEvacLoc(name,hint){
+  var cacheKey=name;
+  if(evacGeoCache[cacheKey]) return evacGeoCache[cacheKey];
+  var stored=localStorage.getItem('eg_'+cacheKey);
+  if(stored){var r=JSON.parse(stored);evacGeoCache[cacheKey]=r;return r;}
+  var q=name+(hint?' '+hint:'')+' 台灣';
+  var url='https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(q)+'&viewbox=121.0,25.6,122.2,24.7&bounded=1&limit=1';
+  try{
+    var resp=await fetch(url,{headers:{'Accept-Language':'zh-TW,zh','User-Agent':'emic-evac/1.0'}});
+    var d=await resp.json();
+    if(d&&d[0]){
+      var r={lat:parseFloat(d[0].lat),lng:parseFloat(d[0].lon)};
+      evacGeoCache[cacheKey]=r;
+      localStorage.setItem('eg_'+cacheKey,JSON.stringify(r));
+      return r;
+    }
+  }catch(e){}
+  return null;
+}
+
+function evacSleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+
+async function drawEvacItems(items,layerGroup,icon,typeLabel){
+  var found=0;
+  for(var i=0;i<items.length;i++){
+    var item=items[i];
+    var hint=(item.dist||item.city||'新北市');
+    var coord=await geocodeEvacLoc(item.name,hint);
+    if(coord){
+      found++;
+      var pop='<div class="popup-title">'+item.name+'</div>'+
+        '<div class="popup-meta">'+typeLabel+(item.boro?' · '+item.boro:'')+'</div>';
+      L.marker([coord.lat,coord.lng],{icon:icon}).addTo(layerGroup).bindPopup(pop);
+    }
+    if(i<items.length-1) await evacSleep(1100);
+  }
+  return found;
+}
+
+async function loadEvacuationData(){
+  if(evacLoaded) return;
+  evacLoaded=true;
+  var setStatus=function(s){var el=document.getElementById('evacStatus');if(el)el.textContent=s;};
+  var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+  var plants=[
+    {key:'1',tab:'核能一廠',hint:'新北市石門三芝'},
+    {key:'2',tab:'核能二廠',hint:'新北市萬里金山'}
+  ];
+  var icM=L.icon({iconUrl:'Meetingpoint.png',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
+  var icS=L.icon({iconUrl:'shield.png',      iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
+  var icR=L.icon({iconUrl:'shelter.png',     iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
+  var total=0;
+  for(var p=0;p<plants.length;p++){
+    var pl=plants[p];
+    var label='核'+(pl.key==='1'?'一':'二')+'廠';
+    setStatus(label+' 讀取資料...');
+    try{
+      var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent(pl.tab);
+      var resp=await fetch(url);
+      if(!resp.ok){setStatus(label+' 讀取失敗 ('+resp.status+')');continue;}
+      var text=await resp.text();
+      var rows=parseFullCSV(text);
+      var data=parseEvacData(rows);
+      setStatus(label+' 集結點定位中... ('+data.meetings.length+'點)');
+      total+=await drawEvacItems(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點');
+      setStatus(label+' 防護站定位中...');
+      total+=await drawEvacItems(data.shields,layerGroups['shield'+pl.key],icS,'防護站');
+      setStatus(label+' 收容所定位中...');
+      total+=await drawEvacItems(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所');
+    }catch(e){
+      console.error('evac load error',pl.tab,e);
+      setStatus(label+' 載入失敗');
+      evacLoaded=false;
+    }
+  }
+  setStatus('完成，共定位 '+total+' 點');
+}
 
 // ── 啟動（window.load 確保 Leaflet 已載入）─────────────────────
 window.addEventListener('load',function(){
