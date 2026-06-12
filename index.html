@@ -2390,8 +2390,8 @@ function parseEvacData(rows){
     if(r[2]&&r[2].trim()) lastBoro=r[2].trim().replace(/\*/g,'');
     if(r[5]&&r[5].trim()) lastShieldName=r[5].trim();
     if(r[6]&&r[6].trim()) lastShieldCoord=r[6].trim();
-    if(r[9]&&r[9].trim()) lastShelterName=r[9].trim();
-    if(r[10]&&r[10].trim()) lastShelterCoord=r[10].trim();
+    if(r[10]&&r[10].trim()) lastShelterName=r[10].trim();
+    if(r[11]&&r[11].trim()) lastShelterCoord=r[11].trim().replace(/[()]/g,'');
 
     var mtg=r[3]?r[3].trim():'';
     var mtgCoord=r[4]?r[4].trim():'';
