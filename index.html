@@ -1280,7 +1280,19 @@ async function sendQA() {
       } catch(re2) {}
     }
     addQAMessage(displayText, 'ai');
-    if (drawItems.length > 0) drawAIShapes(drawItems);
+
+    // 分離 route 與其他繪圖項目
+    var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
+    var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
+    if (shapeItems.length > 0) drawAIShapes(shapeItems);
+    if (routeItems.length > 0 && !routeCtx) {
+      routeItems.forEach(function(ri) {
+        var orig = findPlaceCoords(ri.origin);
+        var dest = findPlaceCoords(ri.destination);
+        if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
+        if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name, dest.name, ri.color || '#e85d04');
+      });
+    }
 
     // 4. 寫 AI 回答到 Sheet（存純文字）
     saveQAToSheet('assistant', displayText);
@@ -1706,7 +1718,19 @@ async function sendQA() {
       } catch(re2) {}
     }
     addQAMessage(displayText, 'ai');
-    if (drawItems.length > 0) drawAIShapes(drawItems);
+
+    // 分離 route 與其他繪圖項目
+    var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
+    var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
+    if (shapeItems.length > 0) drawAIShapes(shapeItems);
+    if (routeItems.length > 0 && !routeCtx) {
+      routeItems.forEach(function(ri) {
+        var orig = findPlaceCoords(ri.origin);
+        var dest = findPlaceCoords(ri.destination);
+        if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
+        if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name, dest.name, ri.color || '#e85d04');
+      });
+    }
 
     // 4. 寫 AI 回答到 Sheet（存純文字）
     saveQAToSheet('assistant', displayText);
@@ -2150,11 +2174,13 @@ function fixMarkerCoords(item) {
 }
 
 var AI_DRAW_RULE = [
-  '【繪圖規則】可在地圖畫出危險區域，draw 陣列格式：',
+  '【繪圖規則】可在地圖畫出危險區域與路線，draw 陣列格式：',
   '  circle:{"type":"circle","lat":數字,"lng":數字,"radius":公尺,"label":"文字","color":"#色","fillOpacity":0.15}',
   '  marker:{"type":"marker","lat":數字,"lng":數字,"label":"文字","color":"#色"}',
   '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
-  '  顏色：危險#dc2626 警戒#f97316 量測點#1a56db 疏散#16a34a 掩蔽#8b5cf6',
+  '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","color":"#e85d04"}',
+  '  ★ 重要：凡問題涉及路線、怎麼走、路怎麼開、距離、疏散路徑，draw 陣列【必須】包含 route 物件。origin/destination 請填地點中文名稱（如「核二廠」「石門防護站」「淡水馬偕醫院」），系統會自動查座標並在地圖畫線。',
+  '  顏色：危險#dc2626 警戒#f97316 量測點#1a56db 疏散#16a34a 掩蔽#8b5cf6 路線#e85d04',
   '  座標只能用電廠、已知測站或村里的實際座標，禁止假設或虛構數值。',
   '  下風向偏移：風向W度（正北0順時針），距D公尺，下風向=(W+180)%360',
   '    rad=下風向×π/180; 目標lat=起點lat+(D/111320)×cos(rad)',
