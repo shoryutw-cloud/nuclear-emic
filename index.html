@@ -153,6 +153,13 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .evac-toggle.on img{opacity:1}
 .evac-divider{height:1px;background:var(--border);margin:3px 0 6px}
 .evac-status{font-size:9px;color:var(--text-dim);text-align:center;padding-top:3px;min-height:14px}
+
+.map-ctx-menu{display:none;position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);overflow:hidden;min-width:148px;font-family:var(--sans)}
+.map-ctx-menu.show{display:block}
+.ctx-item{padding:10px 15px;cursor:pointer;font-size:13px;color:var(--navy);transition:background 0.12s;user-select:none}
+.ctx-item:hover{background:#f0f4f8}
+.ctx-item.danger{color:var(--red)}
+.ctx-item.danger:hover{background:#fef2f2}
 </style>
 </head>
 <body>
@@ -217,6 +224,12 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       </div>
     </div>
     <div class="evac-status" id="evacStatus">點「疏散」開啟此面板</div>
+  </div>
+
+  <!-- 右鍵選單 -->
+  <div id="mapCtxMenu" class="map-ctx-menu">
+    <div class="ctx-item"  id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
+    <div class="ctx-item danger" id="ctxDelBlock" onclick="doDeleteRoadblock()">🗑 刪除路障</div>
   </div>
 
   <div class="bottom-bar"><span id="coordsDisplay">121.66250, 25.20278</span></div>
@@ -587,6 +600,12 @@ function initMap(){
   layerGroups.meeting2=L.layerGroup().addTo(map);
   layerGroups.shield2 =L.layerGroup().addTo(map);
   layerGroups.shelter2=L.layerGroup().addTo(map);
+  layerGroups.roadblock=L.layerGroup().addTo(map);
+  map.on('contextmenu',function(e){
+    L.DomEvent.preventDefault(e.originalEvent);
+    showMapCtxMenu(e.containerPoint,e.latlng,null);
+  });
+  document.addEventListener('click',hideMapCtxMenu);
   drawEPZ();drawRoutes(null,null);drawHospitals();drawStations(DEFAULT_STATIONS);
   var mapEl=document.getElementById('map');
   mapEl.addEventListener('mousemove',function(e){
@@ -2179,6 +2198,78 @@ function clearAIShapes() {
 
 function refreshData(){if(!simMode)fetchFromSheets();fetchWind();fetchTDXTraffic();}
 
+// ── 路障圖層 ──────────────────────────────────────────────────────
+var _ctxLatLng=null, _ctxPendingMarker=null, _ctxPendingId=null;
+var BLOCK_ICON=null;
+function getBlockIcon(){
+  if(!BLOCK_ICON) BLOCK_ICON=L.icon({iconUrl:'block.png',iconSize:[36,36],iconAnchor:[18,36],popupAnchor:[0,-36]});
+  return BLOCK_ICON;
+}
+
+function showMapCtxMenu(containerPt, latlng, existingData){
+  var menu=document.getElementById('mapCtxMenu');
+  var mapEl=document.getElementById('map');
+  var rect=mapEl.getBoundingClientRect();
+  menu.style.left=(rect.left+containerPt.x+2)+'px';
+  menu.style.top =(rect.top +containerPt.y+2)+'px';
+  document.getElementById('ctxAddBlock').style.display=existingData?'none':'block';
+  document.getElementById('ctxDelBlock').style.display=existingData?'block':'none';
+  _ctxLatLng=latlng;
+  _ctxPendingMarker=existingData?existingData.marker:null;
+  _ctxPendingId    =existingData?existingData.id:null;
+  menu.classList.add('show');
+}
+function hideMapCtxMenu(){document.getElementById('mapCtxMenu').classList.remove('show');}
+
+function addRoadblockMarker(id,lat,lng){
+  var marker=L.marker([lat,lng],{icon:getBlockIcon()}).addTo(layerGroups.roadblock);
+  marker.bindPopup('<div class="popup-title">🚧 路障</div><div class="popup-meta">'+lat.toFixed(5)+', '+lng.toFixed(5)+'<br><small>右鍵刪除</small></div>');
+  marker.on('contextmenu',function(e){
+    L.DomEvent.preventDefault(e.originalEvent);
+    L.DomEvent.stopPropagation(e);
+    showMapCtxMenu(e.containerPoint,e.latlng,{marker:marker,id:id});
+  });
+  return marker;
+}
+
+function doAddRoadblock(){
+  hideMapCtxMenu();
+  if(!_ctxLatLng) return;
+  var lat=_ctxLatLng.lat, lng=_ctxLatLng.lng;
+  var id=Date.now();
+  addRoadblockMarker(id,lat,lng);
+  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'add_roadblock',id:id,lat:lat,lng:lng})
+  }).catch(function(e){console.warn('roadblock write failed',e);});
+}
+
+function doDeleteRoadblock(){
+  hideMapCtxMenu();
+  if(!_ctxPendingMarker||!_ctxPendingId) return;
+  layerGroups.roadblock.removeLayer(_ctxPendingMarker);
+  fetch(WEBAPP_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'delete_roadblock',id:_ctxPendingId})
+  }).catch(function(e){console.warn('roadblock delete failed',e);});
+  _ctxPendingMarker=null; _ctxPendingId=null;
+}
+
+async function loadRoadblocks(){
+  var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+  var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('路障');
+  try{
+    var resp=await fetch(url);
+    if(!resp.ok) return;
+    var text=await resp.text();
+    var rows=parseFullCSV(text);
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i];
+      if(!r||r.length<3) continue;
+      var id=r[0].trim(), lat=parseFloat(r[1]), lng=parseFloat(r[2]);
+      if(id&&!isNaN(lat)&&!isNaN(lng)) addRoadblockMarker(id,lat,lng);
+    }
+  }catch(e){}
+}
+
 // ── 避難疏散圖層 ─────────────────────────────────────────────────
 // 欄位索引（0-based）：
 // 0=縣市別 1=區別 2=里別 3=集結點 4=集結點座標
@@ -2348,6 +2439,7 @@ window.addEventListener('load',function(){
   if(savedGemKey)document.getElementById('geminiKey').value=savedGemKey;
   if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
   initMap();
+  loadRoadblocks();
   setTimeout(function(){if(map)map.invalidateSize();},200);
   initBirdDrag();
   stations=DEFAULT_STATIONS;drawStations(stations);renderStationList(stations);
