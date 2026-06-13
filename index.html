@@ -512,7 +512,14 @@ var qaSessionId = Date.now().toString(36); // 本次對話唯一ID
 var lastBirdTime = 0;
 var alreadyBirdAlerted = false; // 超標狀態只觸發一次
 
-var PLAN_KNOWLEDGE = '【新北市核子事故區域民眾防護應變計畫】\n\nT1緊急戒備：停止大型活動、遊客勸離。\nT2廠區緊急：EPZ 0-3km預防性疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：EPZ 3-8km下風向疏散、防護站除污啟動。\nT4輻射外釋：依指示疏散8km以外下風向民眾。\n\n§4.2 室內掩蔽：在家關緊門窗；戶外迅速返家；車內關窗改室內循環空調。\n\n§4.3 碘片：每人4日份，T2及以上依指示服用。\n\n§4.4 疏散路線（核二廠）：\n路線D：台2線→基隆→火車站\n路線E：台2線→基隆→台62線→國道1/3號\n路線F：台2線→石門→淡水→台64線\n路線G：台2線→基隆→台62線→國道1號→泰山五股\n\n表4-4 輻傷醫院：\n二級：淡水馬偕、基隆長庚、部立基隆、北海岸金山\n三級：台北馬偕、林口長庚、台北榮總、台大、三軍總\n\n§6.1 弱勢族群：醫院護理機構優先疏散，身障獨居長者有專屬程序。';
+var PLAN_KNOWLEDGE = '【新北市核子事故區域民眾防護應變計畫】\n\nT1緊急戒備：停止大型活動、遊客勸離。\nT2廠區緊急：EPZ 0-3km預防性疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：EPZ 3-8km下風向疏散、防護站除污啟動。\nT4輻射外釋：依指示疏散8km以外下風向民眾。\n\n§4.2 室內掩蔽：在家關緊門窗；戶外迅速返家；車內關窗改室內循環空調。\n\n§4.3 碘片：每人4日份，T2及以上依指示服用。\n\n§4.4 疏散路線（核二廠）：\n路線D：台2線→基隆→火車站\n路線E：台2線→基隆→台62線→國道1/3號\n路線F：台2線→石門→淡水→台64線\n路線G：台2線→基隆→台62線→國道1號→泰山五股\n\n§6.1 弱勢族群：醫院護理機構優先疏散，身障獨居長者有專屬程序。';
+
+// 動態產生輻傷醫院清單（供注入 system prompt）
+function buildHospitalContext() {
+  if (!hospitalData.length) return '';
+  var lines = hospitalData.map(function(h){ return h.level + '：' + h.name; }).join('\n');
+  return '\n\n【輻傷醫院清單（最新，來自 Sheet）】\n' + lines;
+}
 
 function getKnowledge() {
   // 優先用當前電廠的知識庫快取
@@ -1284,9 +1291,11 @@ async function sendQA() {
   else if (/基隆/.test(q)) qaKey = 'nuclear1';
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
+  var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
+    hospitalCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
@@ -1714,9 +1723,11 @@ async function sendQA() {
   else if (/基隆/.test(q)) qaKey = 'nuclear1';
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
+  var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
+    hospitalCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
