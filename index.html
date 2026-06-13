@@ -2367,8 +2367,8 @@ function hideMapCtxMenu(){document.getElementById('mapCtxMenu').classList.remove
 function addRoadblockMarker(id,lat,lng){
   // 畫 150m 判定圓（與路障偵測門檻一致）
   var circle=L.circle([lat,lng],{
-    radius:150,
-    color:'#dc2626',fillColor:'#dc2626',fillOpacity:0.15,
+    radius:30, // 顯示用：約一條路寬
+    color:'#dc2626',fillColor:'#dc2626',fillOpacity:0.35,
     weight:2,dashArray:'6,4',interactive:false
   }).addTo(layerGroups.roadblock);
 
