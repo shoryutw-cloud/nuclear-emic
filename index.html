@@ -1133,103 +1133,31 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
   }
 }
 
-// 偵測問句中的路線意圖，回傳路線資訊字串（給 Groq 當上下文）
-async function detectAndDrawRoute(q) {
-  var key = getActiveKey();
-  if (!key) return null;
-
-  // 讓 Groq 判斷這句話是否需要畫路線，起點和終點是什麼
-  // 用小模型快速判斷，不消耗太多 token
-  // 動態加入 Sheet 集結點 + 防護站 + 收容所名稱，讓解析模型認得正確地名
-  var meetingNames = evacSheetData.meetings.map(function(m){return m.name;}).join('、');
-  var shieldNames  = evacSheetData.shields.map(function(s){return s.name;}).join('、');
-  var shelterNames = evacSheetData.shelters.map(function(s){return s.name;}).join('、');
-  var sheetPlaces = [meetingNames, shieldNames, shelterNames].filter(Boolean).join('、');
-  var parsePrompt = '判斷以下問句是否需要地圖路線規劃。\n' +
-    '已知地點清單：核一廠、核二廠、核三廠、' +
-    '淡水馬偕醫院、基隆長庚醫院、部立基隆醫院、北海岸金山醫院、台北馬偕醫院、林口長庚醫院、台北榮總、' +
-    (sheetPlaces ? sheetPlaces : '') + '\n\n' +
-    '問句：「' + q + '」\n\n' +
-    '請輸出 JSON（只輸出 JSON，不要其他文字）：\n' +
-    '{"need_route": true/false, "origin": "起點名稱或null", "destination": "終點名稱或null"}\n\n' +
-    '規則：\n' +
-    '- 有移動、路線、距離、怎麼去、怎麼走、走法等意圖就是 true\n' +
-    '- origin 和 destination 必須【一字不差】使用上方清單中的完整名稱，不在清單才填使用者原文\n' +
-    '- 最近的醫院/防護站：destination 填「最近醫院」或「最近防護站」';
-
-  try {
-    var parseText = await callAI([{role:'user', content: parsePrompt}],80,0,true);
-    var j1 = parseText.indexOf('{'), j2 = parseText.lastIndexOf('}');
-    if (j1 < 0) return null;
-    var intent = JSON.parse(parseText.substring(j1, j2+1));
-    console.log('路線意圖判斷:', intent);
-    if (!intent.need_route) return null;
-
-    // 找起點座標（Sheet → Nominatim），找不到才退回電廠
-    var origin = null;
-    if (intent.origin && intent.origin !== 'null') {
-      origin = await findOrGeocodePlace(intent.origin);
-    }
-    if (!origin) origin = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
-    console.log('路線起點:', intent.origin, '→', origin.name, origin.lat, origin.lng);
-
-    // 找終點座標
-    var dest = null;
-    if (intent.destination) {
-      if (/最近醫院|輻傷醫院/.test(intent.destination)) {
-        var near = findNearestHospitals(origin.lat, origin.lng, 1)[0];
-        dest = { lat: near.lat, lng: near.lng, name: near.name };
-      } else if (/最近防護站/.test(intent.destination)) {
-        dest = findNearestProtectionStation(origin.lat, origin.lng);
-      } else {
-        dest = await findOrGeocodePlace(intent.destination);
-      }
-    }
-    if (!dest) return null;
-
-    var result = await drawAIRoute(origin.lat, origin.lng, dest.lat, dest.lng, origin.name, dest.name, '#e85d04');
-    if (!result) return null;
-
-    var alternates = findNearestHospitals(origin.lat, origin.lng, 3)
-      .filter(function(h){ return h.name !== dest.name; })
-      .slice(0,2).map(function(h){ return h.name+'（'+h.dist.toFixed(1)+'km）'; }).join('、');
-
-    return '【地圖已自動畫出路線】\n起點：'+result.fromName+'\n終點：'+result.toName+
-      '\n距離：'+result.distKm+' km\n預估車程：約'+result.mins+'分鐘'+
-      (alternates?'\n備援地點：'+alternates:'');
-
-  } catch(e) {
-    console.warn('路線意圖判斷失敗:', e.message);
-    return null;
-  }
-}
-
-// Nominatim 地名查詢（fallback，限台灣）
-async function geocodePlace(name) {
-  if (!name) return null;
-  try {
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tw&accept-language=zh-TW&q=' + encodeURIComponent(name);
-    var res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    var data = await res.json();
-    if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: name };
-  } catch(e) {}
-  return null;
-}
-
-// 找地點（先查本地，找不到再 Nominatim）
+// 找地點（先查本地 Sheet，找不到再 Nominatim）
 async function findOrGeocodePlace(name) {
   var r = findPlaceCoords(name);
   if (r) return r;
   return await geocodePlace(name);
 }
 
-// 處理 AI 回傳的 route 項目（async，支援 Nominatim fallback）
+// 處理 AI 回傳的 route 項目（唯一畫線入口；Sheet優先→Nominatim備援）
 async function processRouteItems(routeItems) {
   for (var i = 0; i < routeItems.length; i++) {
     var ri = routeItems[i];
+    // 起點
     var orig = await findOrGeocodePlace(ri.origin);
-    var dest = await findOrGeocodePlace(ri.destination);
     if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
+    // 終點：支援「最近防護站 / 最近醫院」由程式從起點計算最近的
+    var dest = null;
+    var dStr = ri.destination || '';
+    if (/最近.*防護站|防護站$/.test(dStr) && !findPlaceCoords(dStr)) {
+      dest = findNearestProtectionStation(orig.lat, orig.lng);
+    } else if (/最近.*醫院|輻傷醫院/.test(dStr) && !findPlaceCoords(dStr)) {
+      var nh = findNearestHospitals(orig.lat, orig.lng, 1)[0];
+      if (nh) dest = { lat: nh.lat, lng: nh.lng, name: nh.name };
+    }
+    if (!dest) dest = await findOrGeocodePlace(dStr);
+    console.log('AI路線:', ri.origin, '→', orig.name, '|', ri.destination, '→', dest && dest.name);
     if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name || ri.origin, dest.name || ri.destination, ri.color || '#e85d04');
   }
 }
@@ -1322,8 +1250,8 @@ async function sendQA() {
   // 1. 寫使用者問題到 Sheet
   saveQAToSheet('user', q);
 
-  // 路線偵測：若問句包含路線意圖，自動在地圖畫線並把資訊加入 prompt
-  var routeCtx = await detectAndDrawRoute(q);
+  // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
+  var routeCtx = null;
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
@@ -1390,7 +1318,7 @@ async function sendQA() {
     var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
-    if (routeItems.length > 0 && !routeCtx) {
+    if (routeItems.length > 0) {
       processRouteItems(routeItems);
     }
 
@@ -1596,120 +1524,6 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
   }
 }
 
-// 偵測問句中的路線意圖，回傳路線資訊字串（給 Groq 當上下文）
-async function detectAndDrawRoute(q) {
-  var isRouteQ = /路線|怎麼走|怎樣走|走麼走|咋走|如何到|到哪|距離|最近醫院|輻傷醫院|路徑|導航|怎麼去|怎樣去|去哪/.test(q);
-  if (!isRouteQ) return null;
-
-  // 找起點（記住用了哪個 key，避免終點偵測重複選到它）
-  var origin = null;
-  var originKey = null;
-  for (var key in AI_ROUTE_PLACES) {
-    if (q.indexOf(key) >= 0) { origin = AI_ROUTE_PLACES[key]; originKey = key; break; }
-  }
-  // 若沒指定起點，用當前電廠
-  if (!origin) {
-    // 試用 Nominatim 找起點（稀有情況）
-    for (var ok in AI_ROUTE_PLACES) {
-      if (q.indexOf(ok) >= 0) { origin = AI_ROUTE_PLACES[ok]; break; }
-    }
-  }
-  if (!origin) origin = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
-
-  // 找終點：先試 AI_ROUTE_PLACES（防護站/收容所等）
-  var dest = null;
-
-  // 1. 直接地點名稱比對（優先），跳過已選為起點的 key
-  var qNorm = q.replace(/市立|區立|縣立|國立|市營|新北市|基隆市|台北市|臺北市/g, '');
-  for (var key in AI_ROUTE_PLACES) {
-    if (key === originKey) continue;  // 不重複選起點
-    var keyNorm = key.replace(/市立|區立|縣立|國立/g, '');
-    if (q.indexOf(key) >= 0 || qNorm.indexOf(keyNorm) >= 0) {
-      dest = AI_ROUTE_PLACES[key]; break;
-    }
-  }
-
-  // 2. 醫院：名稱比對
-  if (!dest) {
-    for (var i = 0; i < hospitalData.length; i++) {
-      var h = hospitalData[i];
-      var shortName = h.name.replace('醫院','');
-      if (q.indexOf(shortName) >= 0 || q.indexOf(h.name) >= 0) {
-        dest = { lat: h.lat, lng: h.lng, name: h.name }; break;
-      }
-    }
-  }
-
-  // 3. 最近醫院
-  if (!dest && /輻傷醫院|最近醫院|醫院/.test(q)) {
-    var nearest = findNearestHospitals(origin.lat, origin.lng, 1)[0];
-    dest = { lat: nearest.lat, lng: nearest.lng, name: nearest.name };
-  }
-
-  // 4. 防護站關鍵字：若沒有方向指定，選最近的
-  if (!dest && /防護站/.test(q)) {
-    var stations = [
-      { name:'石門洞防護站（西行）', lat:25.300, lng:121.550 },
-      { name:'基隆市防災廣場（東行）', lat:25.130, lng:121.740 },
-    ];
-    var nearest = stations.reduce(function(a,b){
-      return haversine(origin.lat,origin.lng,a.lat,a.lng) < haversine(origin.lat,origin.lng,b.lat,b.lng) ? a : b;
-    });
-    // 若問句有「基隆」選基隆站，有「石門」選石門站
-    if (/基隆/.test(q)) nearest = stations[1];
-    if (/石門/.test(q)) nearest = stations[0];
-    dest = nearest;
-  }
-
-  // 5. 收容所關鍵字
-  if (!dest && /收容所|避難|收容/.test(q)) {
-    var shelters = [
-      { name:'三重綜合體育館', lat:25.064, lng:121.487 },
-      { name:'新莊體育館',     lat:25.030, lng:121.446 },
-      { name:'板橋體育館',     lat:25.014, lng:121.468 },
-    ];
-    dest = shelters.reduce(function(a,b){
-      return haversine(origin.lat,origin.lng,a.lat,a.lng) < haversine(origin.lat,origin.lng,b.lat,b.lng) ? a : b;
-    });
-  }
-
-  // 6. Nominatim fallback：從問句抽出未知地名，用 OpenStreetMap 查座標
-  if (!dest) {
-    // 把已知地名從問句移除，剩下的可能是目的地名稱
-    var remaining = q;
-    for (var rkey in AI_ROUTE_PLACES) { remaining = remaining.replace(rkey, ''); }
-    hospitalData.forEach(function(h){ remaining = remaining.replace(h.name.replace('醫院',''), ''); });
-    // 移除動詞/介詞/贅詞
-    remaining = remaining.replace(/怎麼走|怎樣走|如何到|路線|路徑|距離|最近|到達|到|的|從|去|是|有|嗎|請問|告訴我|導航/g, '').trim();
-    if (remaining.length >= 2) {
-      console.log('Nominatim 查詢殘餘地名:', remaining);
-      dest = await geocodePlace(remaining);
-    }
-  }
-
-  if (!dest) return null;
-
-  // 呼叫 OSRM 並畫線
-  var result = await drawAIRoute(origin.lat, origin.lng, dest.lat, dest.lng, origin.name, dest.name, '#2563eb');
-  if (!result) return null;
-
-  // 同時計算備援醫院
-  var alternates = findNearestHospitals(origin.lat, origin.lng, 3)
-    .filter(function(h) { return h.name !== dest.name; })
-    .map(function(h) { return h.name + '（' + h.dist.toFixed(1) + 'km）'; })
-    .join('、');
-
-  var routeContext = '【地圖已自動畫出路線】\n' +
-    '起點：' + result.fromName + '\n' +
-    '終點：' + result.toName + '\n' +
-    '距離：' + result.distKm + ' km\n' +
-    '預估車程：約 ' + result.mins + ' 分鐘\n' +
-    '備援醫院（距起點由近到遠）：' + alternates;
-
-  return routeContext;
-}
-
-
 // ── Nominatim 地名轉座標（OpenStreetMap，免費不需 Key）────────
 async function geocodePlace(placeName, regionHint) {
   // regionHint：加地區提示讓 Nominatim 找到正確的台灣地點
@@ -1764,8 +1578,8 @@ async function sendQA() {
   // 1. 寫使用者問題到 Sheet
   saveQAToSheet('user', q);
 
-  // 路線偵測：若問句包含路線意圖，自動在地圖畫線並把資訊加入 prompt
-  var routeCtx = await detectAndDrawRoute(q);
+  // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
+  var routeCtx = null;
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
@@ -1832,7 +1646,7 @@ async function sendQA() {
     var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
-    if (routeItems.length > 0 && !routeCtx) {
+    if (routeItems.length > 0) {
       processRouteItems(routeItems);
     }
 
@@ -2286,6 +2100,8 @@ var AI_DRAW_RULE = [
   '  boundary:{"type":"boundary","name":"里/區/市名稱（如安樂里、萬里區）","color":"#色","fillOpacity":0.18} ← 系統自動查詢真實行政邊界，禁止自己猜多邊形座標',
   '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","color":"#e85d04"}',
   '  ★ 凡涉及路線/怎麼走/疏散路徑，draw 必須含 route。凡涉及村里/區域範圍，draw 必須用 boundary 而非 polygon。',
+  '  ★ route 的 origin/destination 必須【一字不差】使用上方「疏散地點清單」中的完整名稱（如「中幅市民活動中心」），不可自行改寫或簡化。',
+  '  ★ 若使用者要去「最近的防護站/醫院」但未指定哪一個，destination 直接填「最近防護站」或「最近醫院」，系統會自動算最近的。',
   '  顏色：危險#dc2626 警戒#f97316 量測點#1a56db 疏散#16a34a 掩蔽#8b5cf6 路線#e85d04',
   '  座標只能用電廠、已知測站或村里的實際座標，禁止假設或虛構數值。',
   '  下風向偏移：風向W度（正北0順時針），距D公尺，下風向=(W+180)%360',
