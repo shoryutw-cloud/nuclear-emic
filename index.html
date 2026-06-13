@@ -1480,7 +1480,7 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
     L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
       .bindPopup('<div style="font-size:14px"><b>🟢 起點</b><br>'+fromName+'</div>');
     L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup(endPopup).openPopup();
+      .bindPopup(endPopup);
 
     return { distKm: distKm, mins: mins, fromName: fromName, toName: toName, blockedWarning: blockedWarning };
 
