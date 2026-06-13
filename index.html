@@ -545,7 +545,8 @@ function buildRoadblockContext() {
     return '  - ' + (blk.roadName ? blk.roadName + ' ' + pos : '位置 ' + pos);
   });
   return '\n\n【目前路障（路線規劃必須繞開）】\n' + lines.join('\n') +
-    '\n路線規劃時若路障在主幹道上，請在 route 的 waypoints 填入繞道地名，強制走側路或替代道路。';
+    '\n\n★ 規劃路線時必須避開上述路障。請根據台灣地理判斷繞道方式，在 route 的 waypoints 填入至少一個繞道地名（附近的里名、地標或小路），不可留空陣列。' +
+    '\n範例：若台2線萬里段有路障，可填 waypoints:["中幅路","萬里區公所"] 讓路線走內陸小路繞行。';
 }
 
 function getKnowledge() {
@@ -1030,6 +1031,7 @@ async function processRouteItems(routeItems) {
     }
     if (!dest) dest = await findOrGeocodePlace(dStr);
     // 解析 AI 指定的中間繞道點
+    console.log('AI route JSON:', JSON.stringify(ri));
     var resolvedWaypoints = [];
     if (ri.waypoints && ri.waypoints.length) {
       for (var w = 0; w < ri.waypoints.length; w++) {
@@ -1163,107 +1165,6 @@ function findNearestProtectionStation(lat, lng) {
 function clearAIRoute() {
   if (layerGroups.aiRoute) layerGroups.aiRoute.clearLayers();
   if (layerGroups.evacRoutes) layerGroups.evacRoutes.clearLayers();
-}
-
-
-async function sendQA() {
-  var key = getActiveKey();
-  var input = document.getElementById('qaInput');
-  var q = input.value.trim();
-  if (!q) return;
-  if (!key) { showKeyReminder(); return; }
-
-  addQAMessage(q, 'user');
-  input.value = '';
-  var btn = document.getElementById('qaSendBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
-
-  // 1. 寫使用者問題到 Sheet
-  saveQAToSheet('user', q);
-
-  // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
-  var routeCtx = null;
-  // 批次指令：畫出所有集結點→防護站路線（程式處理，非 AI）
-  var batchEvac = isBatchEvacRouteQuery(q);
-  if (batchEvac) drawAllEvacRoutes();
-
-  // 2. 從 Sheet 讀最近3輪對話歷史
-  var history = await fetchQAHistory(3);
-
-  // 3. 組 Groq messages（系統提示 + 歷史 + 當前問題）
-  var allS = stations.concat(manualData);
-  var stSummary = allS.map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
-  var windInfo = windDir !== null ? document.getElementById('windValue').textContent : '未知';
-  var trafficCtx = tdxTrafficSummary ? ('\n即時路況：'+tdxTrafficSummary.substring(0,200)) : '';
-  // 依問題內容選擇正確電廠的知識庫（GROQ/Gemini 共用）
-  var qaKey = getPlantKey(currentPlant);
-  if (/屏東|核三|恆春|車城|南灣/.test(q)) qaKey = 'nuclear3';
-  else if (/核二|萬里/.test(q)) qaKey = 'nuclear2';
-  else if (/核一|石門|三芝/.test(q)) qaKey = 'nuclear1';
-  else if (/新北/.test(q)) qaKey = 'nuclear2';
-  else if (/基隆/.test(q)) qaKey = 'nuclear1';
-  var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
-
-  var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
-  var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
-  var roadblockCtx = buildRoadblockContext();
-  var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
-    '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
-    '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    hospitalCtx+evacCtx+roadblockCtx+
-    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
-    '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
-    (routeCtx ? '\n\n' + routeCtx : '');
-
-  // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
-  var messages = [{ role:'system', content:systemPrompt }];
-  history.forEach(function(h){ messages.push({ role:h.role, content:h.content }); });
-  messages.push({ role:'user', content:q });
-
-  try {
-    // 使用小模型 llama-3.1-8b-instant 節省 token
-    var answer = await callAI(messages,1500,0.3,true);
-
-    // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
-    var displayText = answer;
-    var drawItems = [];
-    try {
-      var clean = answer.replace(/```json|```/g,'').trim();
-      var j1 = clean.indexOf('{');
-      var j2 = clean.lastIndexOf('}');
-      if (j1 >= 0 && j2 > j1) {
-        var parsed = lenientJSONParse(clean.substring(j1, j2+1));
-        if (parsed && parsed.text) displayText = parsed.text;
-        if (parsed && Array.isArray(parsed.draw) && parsed.draw.length > 0)
-          drawItems = await validateAIDrawItems(parsed.draw);
-      }
-    } catch(pe) {
-      console.warn('QA JSON 解析失敗', pe.message);
-    }
-    if (displayText === answer) {
-      try {
-        var clean2 = answer.replace(/```json|```/g,'').trim();
-        var tm = clean2.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        if (tm) displayText = tm[1].replace(/\\n/g,'\n').replace(/\\"/g,'"');
-      } catch(re2) {}
-    }
-    addQAMessage(displayText, 'ai');
-
-    // 分離 route 與其他繪圖項目
-    var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
-    var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
-    if (shapeItems.length > 0) drawAIShapes(shapeItems);
-    if (routeItems.length > 0 && !batchEvac) {
-      processRouteItems(routeItems);
-    }
-
-    // 4. 寫 AI 回答到 Sheet（存純文字）
-    saveQAToSheet('assistant', displayText);
-
-  } catch(e) {
-    addQAMessage('AI 呼叫失敗：'+e.message, 'ai');
-  }
-  btn.disabled = false; btn.innerHTML = '送出';
 }
 
 // 寫一筆對話到 Sheet
