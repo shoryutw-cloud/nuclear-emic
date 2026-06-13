@@ -2454,7 +2454,7 @@ async function fetchRoadName(blk){
     // 回寫 Sheet
     fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({action:'update_roadblock_name',id:blk.id,roadName:name})});
     console.log('路障',blk.id,'路名:',name);
-  }catch(e){}
+  }catch(e){ console.error('fetchRoadName 失敗',blk.id,e); }
 }
 
 // 從 OSRM route steps 取得所有路名
@@ -2676,9 +2676,9 @@ function drawEvacItemsDirect(items,layerGroup,icon,typeLabel){
     var pop='<div class="popup-title">'+item.name+'</div>'+
       '<div class="popup-meta">'+typeLabel+(item.boro?' · '+item.boro:'')+'</div>';
     if(item.shieldName)
-      pop+='<div class="popup-meta" style="color:#1d4ed8">🛡 防護站：'+item.shieldName+'</div>';
+      pop+='<div class="popup-meta" style="color:#1d4ed8">防護站：'+item.shieldName+'</div>';
     if(item.shelterNames&&item.shelterNames.length)
-      pop+='<div class="popup-meta" style="color:#047857">🏠 收容所：'+item.shelterNames.join('、')+'</div>';
+      pop+='<div class="popup-meta" style="color:#047857">收容所：'+item.shelterNames.join('、')+'</div>';
     L.marker([item.lat,item.lng],{icon:icon}).addTo(layerGroup).bindPopup(pop);
     count++;
   });
