@@ -1247,37 +1247,50 @@ async function processRouteItems(routeItems) {
   }
 }
 
-// 從已知地點清單查座標
-function findPlaceCoords(name) {
-  if (!name || name === 'null') return null;
-  // 1. 寫死的地點表
-  for (var key in AI_ROUTE_PLACES) {
-    if (name.indexOf(key) >= 0 || key.indexOf(name) >= 0) return AI_ROUTE_PLACES[key];
-  }
-  // 2. 醫院（從 Sheet 載入的 hospitalData）
-  for (var i = 0; i < hospitalData.length; i++) {
-    var h = hospitalData[i];
-    if (name.indexOf(h.name.replace('醫院','')) >= 0 || h.name.indexOf(name) >= 0) {
-      return { lat: h.lat, lng: h.lng, name: h.name };
+// 地名模糊比對：完全包含 or 共享 4 字以上子字串
+function nameMatch(a, b) {
+  if (!a || !b) return false;
+  if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return true;
+  var shorter = a.length <= b.length ? a : b;
+  var longer  = a.length >  b.length ? a : b;
+  for (var len = Math.min(shorter.length, 6); len >= 4; len--) {
+    for (var i = 0; i <= shorter.length - len; i++) {
+      if (longer.indexOf(shorter.slice(i, i + len)) >= 0) return true;
     }
   }
-  // 3. Sheet 防護站
-  for (var j = 0; j < evacSheetData.shields.length; j++) {
-    var s = evacSheetData.shields[j];
-    if (s.lat && s.lng && s.name && (name.indexOf(s.name) >= 0 || s.name.indexOf(name) >= 0))
-      return { lat: s.lat, lng: s.lng, name: s.name };
-  }
-  // 4. Sheet 收容所
-  for (var k = 0; k < evacSheetData.shelters.length; k++) {
-    var r = evacSheetData.shelters[k];
-    if (r.lat && r.lng && r.name && (name.indexOf(r.name) >= 0 || r.name.indexOf(name) >= 0))
-      return { lat: r.lat, lng: r.lng, name: r.name };
-  }
-  // 5. Sheet 集結點
+  return false;
+}
+
+// 從已知地點清單查座標（Sheet 優先，支援模糊比對）
+function findPlaceCoords(name) {
+  if (!name || name === 'null') return null;
+  // 1. Sheet 集結點（最常被 AI 提到）
   for (var m = 0; m < evacSheetData.meetings.length; m++) {
     var mt = evacSheetData.meetings[m];
-    if (mt.lat && mt.lng && mt.name && (name.indexOf(mt.name) >= 0 || mt.name.indexOf(name) >= 0))
+    if (mt.lat && mt.lng && mt.name && nameMatch(name, mt.name))
       return { lat: mt.lat, lng: mt.lng, name: mt.name };
+  }
+  // 2. Sheet 防護站
+  for (var j = 0; j < evacSheetData.shields.length; j++) {
+    var s = evacSheetData.shields[j];
+    if (s.lat && s.lng && s.name && nameMatch(name, s.name))
+      return { lat: s.lat, lng: s.lng, name: s.name };
+  }
+  // 3. Sheet 收容所
+  for (var k = 0; k < evacSheetData.shelters.length; k++) {
+    var r = evacSheetData.shelters[k];
+    if (r.lat && r.lng && r.name && nameMatch(name, r.name))
+      return { lat: r.lat, lng: r.lng, name: r.name };
+  }
+  // 4. 醫院
+  for (var i = 0; i < hospitalData.length; i++) {
+    var h = hospitalData[i];
+    if (nameMatch(name, h.name) || nameMatch(name, h.name.replace('醫院','')))
+      return { lat: h.lat, lng: h.lng, name: h.name };
+  }
+  // 5. 寫死的地點表（區域/電廠等粗略地名最後查）
+  for (var key in AI_ROUTE_PLACES) {
+    if (nameMatch(name, key)) return AI_ROUTE_PLACES[key];
   }
   return null;
 }
