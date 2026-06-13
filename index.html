@@ -1120,7 +1120,8 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
     if (!chosenRoute) {
       var r0 = d.routes[0];
       chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
-      blockedWarning = '⚠️ 偵測到路障，所有備選路線均受影響，建議現場確認';
+      blockedWarning = '⚠️ 所有備選路線均受路障影響，建議現場確認';
+      showRoadblockToast('⚠️ 無法完全避開路障，已選最近替代路線',false);
     }
 
     var route  = chosenRoute.route;
@@ -1533,7 +1534,8 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
     if (!chosenRoute) {
       var r0 = d.routes[0];
       chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
-      blockedWarning = '⚠️ 偵測到路障，所有備選路線均受影響，建議現場確認';
+      blockedWarning = '⚠️ 所有備選路線均受路障影響，建議現場確認';
+      showRoadblockToast('⚠️ 無法完全避開路障，已選最近替代路線',false);
     }
 
     var route  = chosenRoute.route;
@@ -2507,6 +2509,8 @@ async function fetchRoadName(blk){
     // 回寫 Sheet
     fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({action:'update_roadblock_name',id:blk.id,roadName:name})});
     console.log('路障',blk.id,'路名:',name);
+    // 路名確認後，再重新規劃一次（這次可做路名比對）
+    _tryManualRoute();
   }catch(e){ console.error('fetchRoadName 失敗',blk.id,e); }
 }
 
@@ -2543,10 +2547,10 @@ function distToSegment(pt, a, b){
   return haversine(pt[0],pt[1],a[0]+t*dx,a[1]+t*dy);
 }
 
-// 方法 B：幾何備援（點到線段 < 80m）
+// 方法 B：幾何備援（點到線段 < 150m，OSRM 簡化折線點稀疏故用較大門檻）
 function checkRouteBlockedByGeometry(routeCoords){
   if(!activeRoadblocks.length||routeCoords.length<2) return null;
-  var THRESHOLD=0.08; // 80m
+  var THRESHOLD=0.15; // 150m
   for(var j=0;j<activeRoadblocks.length;j++){
     var blk=activeRoadblocks[j];
     for(var i=0;i<routeCoords.length-1;i++){
