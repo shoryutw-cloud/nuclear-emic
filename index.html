@@ -522,6 +522,19 @@ function buildHospitalContext() {
   return '\n\n【輻傷醫院清單（最新，來自 Sheet）】\n' + lines;
 }
 
+// 把 Sheet 疏散地點清單注入 prompt，讓 AI 直接選用正確名稱
+function buildEvacPlacesContext() {
+  var parts = [];
+  if (evacSheetData.meetings.length)
+    parts.push('集結點：' + evacSheetData.meetings.map(function(m){ return m.name; }).join('、'));
+  if (evacSheetData.shields.length)
+    parts.push('防護站：' + evacSheetData.shields.map(function(s){ return s.name; }).join('、'));
+  if (evacSheetData.shelters.length)
+    parts.push('收容所：' + evacSheetData.shelters.map(function(s){ return s.name; }).join('、'));
+  if (!parts.length) return '';
+  return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取）】\n' + parts.join('\n');
+}
+
 function getKnowledge() {
   // 優先用當前電廠的知識庫快取
   var plantKey = getPlantKey(currentPlant);
@@ -1325,10 +1338,11 @@ async function sendQA() {
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
+  var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    hospitalCtx+
+    hospitalCtx+evacCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
@@ -1766,10 +1780,11 @@ async function sendQA() {
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
+  var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    hospitalCtx+
+    hospitalCtx+evacCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
