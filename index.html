@@ -2382,7 +2382,7 @@ function distToSegment(pt, a, b){
 // 方法 B：幾何備援（點到線段 < 150m，OSRM 簡化折線點稀疏故用較大門檻）
 function checkRouteBlockedByGeometry(routeCoords){
   if(!activeRoadblocks.length||routeCoords.length<2) return null;
-  var THRESHOLD=0.15; // 150m
+  var THRESHOLD=0.06; // 60m（overview=full 幾何點密，60m 足以偵測；過大會誤判旁邊側街）
   for(var j=0;j<activeRoadblocks.length;j++){
     var blk=activeRoadblocks[j];
     for(var i=0;i<routeCoords.length-1;i++){
