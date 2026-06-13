@@ -1216,16 +1216,21 @@ async function processRouteItems(routeItems) {
   }
 }
 
-// 地名模糊比對：完全包含 or 共享 4 字以上子字串
+// 去掉通用詞，只保留地名核心（里名、地區名）
+function extractCoreName(s) {
+  return s.replace(/老人|市民|青年|社區|里民|社福|文化|公民/g, '')
+          .replace(/活動中心|停車場|防護站|收容所|避難所|廣場|運動場|體育場|停車區/g, '')
+          .trim();
+}
+
+// 地名比對：先精確包含，再比核心名稱
 function nameMatch(a, b) {
   if (!a || !b) return false;
   if (a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return true;
-  var shorter = a.length <= b.length ? a : b;
-  var longer  = a.length >  b.length ? a : b;
-  for (var len = Math.min(shorter.length, 6); len >= 4; len--) {
-    for (var i = 0; i <= shorter.length - len; i++) {
-      if (longer.indexOf(shorter.slice(i, i + len)) >= 0) return true;
-    }
+  var ca = extractCoreName(a);
+  var cb = extractCoreName(b);
+  if (ca.length >= 2 && cb.length >= 2) {
+    if (ca.indexOf(cb) >= 0 || cb.indexOf(ca) >= 0) return true;
   }
   return false;
 }
