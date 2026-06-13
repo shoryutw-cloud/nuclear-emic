@@ -992,147 +992,6 @@ function renderRecommendations(data){
   document.getElementById('recList').innerHTML=html;
 }
 
-// ── 問答 ──────────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
-// AI 路線規劃系統（OSRM + 關鍵字偵測）
-// ══════════════════════════════════════════════════════════════
-
-// hospitalData（從 Sheet 動態載入）取代原本的 AI_ROUTE_HOSPITALS
-
-var AI_ROUTE_PLACES = {
-  // 核電廠
-  '核一廠': { lat:25.290805405532808, lng:121.59157754241023, name:'核一廠（新北石門）' },
-  '核二廠': { lat:25.206432449200097, lng:121.66024945943933, name:'核二廠（新北萬里）' },
-  '核三廠': { lat:21.971, lng:120.751, name:'核三廠（屏東恆春）' },
-  // 防護站（§4.2）
-  '石門防護站': { lat:25.300, lng:121.550, name:'石門洞防護站（西行方向）' },
-  '石門洞': { lat:25.300, lng:121.550, name:'石門洞停車場防護站' },
-  '基隆防護站': { lat:25.130, lng:121.740, name:'基隆市防災廣場防護站（東行方向）' },
-  '基隆防災廣場': { lat:25.130, lng:121.740, name:'基隆市防災廣場' },
-  '基隆棒球場':    { lat:25.133, lng:121.735, name:'基隆市立棒球場防護站' },
-  '基隆市立棒球場': { lat:25.133, lng:121.735, name:'基隆市立棒球場防護站' },
-  '棒球場':         { lat:25.133, lng:121.735, name:'基隆市立棒球場防護站' },
-  '七堵': { lat:25.085, lng:121.707, name:'國道3號七堵南下地磅站（備援防護站）' },
-  // 前進指揮所
-  '三芝區公所': { lat:25.260, lng:121.502, name:'三芝區公所（前進指揮所）' },
-  '前進指揮所': { lat:25.260, lng:121.502, name:'三芝區公所（前進指揮所）' },
-  // 避難收容處所（§4.4）
-  '三重體育館': { lat:25.064, lng:121.487, name:'三重綜合體育館（收容所）' },
-  '新莊體育館': { lat:25.030, lng:121.446, name:'新莊體育館（收容所）' },
-  '板橋體育館': { lat:25.014, lng:121.468, name:'板橋體育館（收容所）' },
-  '泰山體育館': { lat:25.053, lng:121.423, name:'泰山體育館（收容所）' },
-  // 區域地點
-  '野柳':     { lat:25.131, lng:121.686, name:'野柳' },
-  '金山':     { lat:25.229, lng:121.641, name:'金山區' },
-  '萬里':     { lat:25.181, lng:121.680, name:'萬里區' },
-  '石門':     { lat:25.295, lng:121.564, name:'石門區' },
-  '淡水':     { lat:25.167, lng:121.447, name:'淡水' },
-  '基隆':     { lat:25.128, lng:121.740, name:'基隆市' },
-  '三芝':     { lat:25.260, lng:121.502, name:'三芝區' },
-};
-
-// 地球表面距離（km）
-function haversine(lat1, lng1, lat2, lng2) {
-  var R = 6371;
-  var dLat = (lat2-lat1)*Math.PI/180;
-  var dLng = (lng2-lng1)*Math.PI/180;
-  var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
-    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
-    Math.sin(dLng/2)*Math.sin(dLng/2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-// 找最近輻傷醫院（從 Sheet 載入的 hospitalData）
-function findNearestHospitals(lat, lng, count) {
-  count = count || 3;
-  return hospitalData
-    .map(function(h) { return Object.assign({}, h, { dist: haversine(lat, lng, h.lat, h.lng) }); })
-    .sort(function(a,b) { return a.dist - b.dist; })
-    .slice(0, count);
-}
-
-// 畫 OSRM 路線到地圖
-async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, color) {
-  color = color || '#e85d04';
-  layerGroups.aiRoute.clearLayers();
-
-  // 起終點標記
-  var startIcon = L.divIcon({
-    html: '<div style="background:#22c55e;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,0.4)">S</div>',
-    iconSize:[28,28], iconAnchor:[14,14], className:''
-  });
-  var endIcon = L.divIcon({
-    html: '<div style="background:#dc2626;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,0.4)">E</div>',
-    iconSize:[28,28], iconAnchor:[14,14], className:''
-  });
-
-  var drawFallback = function(distKm, mins) {
-    // 備援：畫虛線直線
-    L.polyline([[fromLat,fromLng],[toLat,toLng]], {
-      color:color, weight:3, opacity:0.7, dashArray:'8,6'
-    }).addTo(layerGroups.aiRoute);
-    L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup('<b>🟢 起點</b><br>'+fromName);
-    L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup('<b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km | 約'+mins+'分鐘');
-  };
-
-  try {
-    // 請求含備選路線（最多 3 條）以便避開路障
-    var url = 'https://router.project-osrm.org/route/v1/driving/' +
-      fromLng.toFixed(6)+','+fromLat.toFixed(6)+';'+
-      toLng.toFixed(6)+','+toLat.toFixed(6)+
-      '?overview=full&geometries=geojson&alternatives=3&steps=true';
-    var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error('OSRM HTTP ' + res.status);
-    var d = await res.json();
-
-    if (!d.routes || !d.routes[0] || !d.routes[0].geometry || !d.routes[0].geometry.coordinates.length) {
-      throw new Error('無有效路線座標');
-    }
-
-    // 從備選路線中選第一條沒路障的
-    var chosenRoute = null, blockedWarning = null;
-    for (var ri = 0; ri < d.routes.length; ri++) {
-      var candidate = d.routes[ri];
-      var cCoords = candidate.geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
-      var cStepNames = getStepNames(candidate);
-      if (!checkRouteBlocked(cCoords, cStepNames)) { chosenRoute = { route: candidate, coords: cCoords }; break; }
-    }
-    if (!chosenRoute) {
-      var r0 = d.routes[0];
-      chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
-      blockedWarning = '⚠️ 所有備選路線均受路障影響，建議現場確認';
-      showRoadblockToast('⚠️ 無法完全避開路障，已選最近替代路線',false);
-    }
-
-    var route  = chosenRoute.route;
-    var coords = chosenRoute.coords;
-    var distKm = (route.distance / 1000).toFixed(1);
-    var mins   = Math.round(route.duration / 60);
-
-    L.polyline(coords, { color:'#fff', weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
-    L.polyline(coords, { color:color,  weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
-
-    var endPopup = '<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km｜約'+mins+'分鐘'+
-      (blockedWarning ? '<br><span style="color:#dc2626;font-size:12px">'+blockedWarning+'</span>' : '')+'</div>';
-
-    L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup('<div style="font-size:14px"><b>🟢 起點</b><br>'+fromName+'</div>');
-    L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup(endPopup).openPopup();
-
-    return { distKm: distKm, mins: mins, fromName: fromName, toName: toName, blockedWarning: blockedWarning };
-
-  } catch(e) {
-    console.warn('OSRM 失敗，改畫直線備援:', e.message);
-    var straightKm = haversine(fromLat, fromLng, toLat, toLng).toFixed(1);
-    var estMins = Math.round(straightKm / 0.5);
-    drawFallback(straightKm, estMins);
-    return { distKm: straightKm, mins: estMins, fromName: fromName, toName: toName };
-  }
-}
-
 // 找地點（先查本地 Sheet，找不到再 Nominatim）
 async function findOrGeocodePlace(name) {
   var r = findPlaceCoords(name);
@@ -1496,6 +1355,31 @@ function findNearestHospitals(lat, lng, count) {
     .slice(0, count);
 }
 
+// 計算路障側向繞道點（取路線段垂直方向 offsetM 公尺，左右各一）
+function computeBypassPoints(blk, routeCoords, offsetM) {
+  offsetM = offsetM || 500;
+  var bestI = 0, bestDist = Infinity;
+  for (var i = 0; i < routeCoords.length - 1; i++) {
+    var d = distToSegment([blk.lat, blk.lng], routeCoords[i], routeCoords[i+1]);
+    if (d < bestDist) { bestDist = d; bestI = i; }
+  }
+  var a = routeCoords[bestI], b = routeCoords[bestI+1];
+  var dlat = b[0] - a[0], dlng = b[1] - a[1];
+  var cosLat = Math.cos(blk.lat * Math.PI / 180);
+  // 垂直方向向量（修正 lat/lng 比例）
+  var pLat = dlng * cosLat;
+  var pLng = -dlat / cosLat;
+  var pLen = Math.sqrt(pLat * pLat + pLng * pLng);
+  if (pLen < 1e-10) return null;
+  pLat /= pLen; pLng /= pLen;
+  var dLat = pLat * offsetM / 111000;
+  var dLng = pLng * offsetM / (111000 * cosLat);
+  return [
+    { lat: blk.lat + dLat, lng: blk.lng + dLng },
+    { lat: blk.lat - dLat, lng: blk.lng - dLng }
+  ];
+}
+
 // 畫 OSRM 路線到地圖
 async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, color) {
   color = color || '#e85d04';
@@ -1545,10 +1429,41 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
       if (!checkRouteBlocked(cCoords, cStepNames)) { chosenRoute = { route: candidate, coords: cCoords }; break; }
     }
     if (!chosenRoute) {
-      var r0 = d.routes[0];
-      chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
-      blockedWarning = '⚠️ 所有備選路線均受路障影響，建議現場確認';
-      showRoadblockToast('⚠️ 無法完全避開路障，已選最近替代路線',false);
+      // 嘗試繞道點路由：計算路障垂直方向 500m 左右兩個點，強制 OSRM 繞行
+      var r0Coords = d.routes[0].geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
+      var blk0 = checkRouteBlocked(r0Coords, getStepNames(d.routes[0]));
+      if (blk0) {
+        var bpts = computeBypassPoints(blk0, r0Coords, 500);
+        if (bpts) {
+          for (var bpIdx = 0; bpIdx < bpts.length && !chosenRoute; bpIdx++) {
+            var wp = bpts[bpIdx];
+            try {
+              var bUrl = 'https://router.project-osrm.org/route/v1/driving/' +
+                fromLng.toFixed(6)+','+fromLat.toFixed(6)+';'+
+                wp.lng.toFixed(6)+','+wp.lat.toFixed(6)+';'+
+                toLng.toFixed(6)+','+toLat.toFixed(6)+
+                '?overview=full&geometries=geojson&steps=true';
+              var bRes = await fetch(bUrl, { signal: AbortSignal.timeout(10000) });
+              if (bRes.ok) {
+                var bD = await bRes.json();
+                if (bD.routes && bD.routes[0] && bD.routes[0].geometry) {
+                  var bCoords = bD.routes[0].geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
+                  if (!checkRouteBlocked(bCoords, getStepNames(bD.routes[0]))) {
+                    chosenRoute = { route: bD.routes[0], coords: bCoords };
+                    console.log('繞道路線成功，繞道點:', wp);
+                  }
+                }
+              }
+            } catch(e2) { console.warn('繞道路由失敗:', e2.message); }
+          }
+        }
+      }
+      if (!chosenRoute) {
+        var r0 = d.routes[0];
+        chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
+        blockedWarning = '⚠️ 所有備選路線均受路障影響，建議現場確認';
+        showRoadblockToast('⚠️ 無法完全避開路障，已選最近替代路線', false);
+      }
     }
 
     var route  = chosenRoute.route;
