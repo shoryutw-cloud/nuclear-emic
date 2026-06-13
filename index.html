@@ -1140,19 +1140,21 @@ async function detectAndDrawRoute(q) {
 
   // 讓 Groq 判斷這句話是否需要畫路線，起點和終點是什麼
   // 用小模型快速判斷，不消耗太多 token
-  // 動態加入 Sheet 防護站名稱
-  var shieldNames = evacSheetData.shields.slice(0,8).map(function(s){return s.name;}).join('、');
+  // 動態加入 Sheet 集結點 + 防護站 + 收容所名稱，讓解析模型認得正確地名
+  var meetingNames = evacSheetData.meetings.map(function(m){return m.name;}).join('、');
+  var shieldNames  = evacSheetData.shields.map(function(s){return s.name;}).join('、');
+  var shelterNames = evacSheetData.shelters.map(function(s){return s.name;}).join('、');
+  var sheetPlaces = [meetingNames, shieldNames, shelterNames].filter(Boolean).join('、');
   var parsePrompt = '判斷以下問句是否需要地圖路線規劃。\n' +
-    '已知地點清單：核一廠、核二廠、核三廠、石門防護站、基隆防護站、基隆棒球場、' +
+    '已知地點清單：核一廠、核二廠、核三廠、' +
     '淡水馬偕醫院、基隆長庚醫院、部立基隆醫院、北海岸金山醫院、台北馬偕醫院、林口長庚醫院、台北榮總、' +
-    '三重體育館、新莊體育館、板橋體育館、泰山體育館、三芝區公所、野柳、金山、萬里、石門、淡水、基隆' +
-    (shieldNames ? '、'+shieldNames : '') + '\n\n' +
+    (sheetPlaces ? sheetPlaces : '') + '\n\n' +
     '問句：「' + q + '」\n\n' +
     '請輸出 JSON（只輸出 JSON，不要其他文字）：\n' +
     '{"need_route": true/false, "origin": "起點名稱或null", "destination": "終點名稱或null"}\n\n' +
     '規則：\n' +
     '- 有移動、路線、距離、怎麼去、怎麼走、走法等意圖就是 true\n' +
-    '- origin 和 destination 用已知地點清單的名稱，不在清單就填使用者說的原文\n' +
+    '- origin 和 destination 必須【一字不差】使用上方清單中的完整名稱，不在清單才填使用者原文\n' +
     '- 最近的醫院/防護站：destination 填「最近醫院」或「最近防護站」';
 
   try {
@@ -1163,9 +1165,13 @@ async function detectAndDrawRoute(q) {
     console.log('路線意圖判斷:', intent);
     if (!intent.need_route) return null;
 
-    // 找起點座標
-    var origin = findPlaceCoords(intent.origin);
+    // 找起點座標（Sheet → Nominatim），找不到才退回電廠
+    var origin = null;
+    if (intent.origin && intent.origin !== 'null') {
+      origin = await findOrGeocodePlace(intent.origin);
+    }
     if (!origin) origin = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
+    console.log('路線起點:', intent.origin, '→', origin.name, origin.lat, origin.lng);
 
     // 找終點座標
     var dest = null;
@@ -1176,8 +1182,7 @@ async function detectAndDrawRoute(q) {
       } else if (/最近防護站/.test(intent.destination)) {
         dest = findNearestProtectionStation(origin.lat, origin.lng);
       } else {
-        dest = findPlaceCoords(intent.destination);
-        if (!dest) dest = await geocodePlace(intent.destination);
+        dest = await findOrGeocodePlace(intent.destination);
       }
     }
     if (!dest) return null;
