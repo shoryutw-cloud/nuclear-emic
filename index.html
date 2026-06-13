@@ -1162,6 +1162,56 @@ async function processRouteItems(routeItems) {
   }
 }
 
+// 偵測「畫出所有集結點→防護站路線」這類批次指令
+function isBatchEvacRouteQuery(q) {
+  return /所有|全部|每個|各個|各集結|逐一|每一/.test(q) && /集結點|疏散點/.test(q)
+      && /防護站|路線|疏散|路怎麼|怎麼走|堵|塞|瓶頸/.test(q);
+}
+
+// 批次畫出所有集結點→對應防護站路線（重疊堆疊變深＝潛在瓶頸）
+var _evacRoutesDrawing = false;
+async function drawAllEvacRoutes() {
+  if (_evacRoutesDrawing) return;
+  if (!evacSheetData.meetings.length) {
+    addQAMessage('集結點資料尚未載入完成，請稍候幾秒再試。', 'ai');
+    return;
+  }
+  _evacRoutesDrawing = true;
+  if (!layerGroups.evacRoutes) layerGroups.evacRoutes = L.layerGroup().addTo(map);
+  layerGroups.evacRoutes.clearLayers();
+
+  // 防護站名稱→座標 對照表
+  var shieldByName = {};
+  evacSheetData.shields.forEach(function(s){ if(s.name) shieldByName[s.name] = s; });
+
+  var meetings = evacSheetData.meetings.filter(function(m){ return m.lat && m.lng; });
+  var statusMsg = addQAMessage('開始繪製 0/' + meetings.length + ' 條疏散路線…', 'ai');
+  var drawn = 0;
+
+  for (var i = 0; i < meetings.length; i++) {
+    var m = meetings[i];
+    var sh = (m.shieldName && shieldByName[m.shieldName]) || findNearestProtectionStation(m.lat, m.lng);
+    if (!sh || !sh.lat) continue;
+    try {
+      var url = 'https://router.project-osrm.org/route/v1/driving/' +
+        m.lng + ',' + m.lat + ';' + sh.lng + ',' + sh.lat + '?overview=full&geometries=geojson';
+      var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      var d = await res.json();
+      if (d.routes && d.routes[0] && d.routes[0].geometry) {
+        var coords = d.routes[0].geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+        // 半透明堆疊：同一路段越多路線經過，顏色越深＝潛在瓶頸
+        L.polyline(coords, { color:'#dc2626', weight:5, opacity:0.16 }).addTo(layerGroups.evacRoutes);
+        drawn++;
+      }
+    } catch(e) {}
+    setQAMessageText(statusMsg, '繪製中 ' + (i+1) + '/' + meetings.length + ' 條…');
+    await new Promise(function(r){ setTimeout(r, 120); }); // 節流，避免 OSRM 限速
+  }
+
+  _evacRoutesDrawing = false;
+  setQAMessageText(statusMsg, '已畫出 ' + drawn + ' 條集結點→防護站路線。顏色越深＝越多路線重疊，即潛在塞車瓶頸。');
+}
+
 // 去掉通用詞，只保留地名核心（里名、地區名）
 function extractCoreName(s) {
   return s.replace(/老人|市民|青年|社區|里民|社福|文化|公民/g, '')
@@ -1232,6 +1282,7 @@ function findNearestProtectionStation(lat, lng) {
 // 清除 AI 路線（供使用者手動清除）
 function clearAIRoute() {
   if (layerGroups.aiRoute) layerGroups.aiRoute.clearLayers();
+  if (layerGroups.evacRoutes) layerGroups.evacRoutes.clearLayers();
 }
 
 
@@ -1252,6 +1303,9 @@ async function sendQA() {
 
   // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
   var routeCtx = null;
+  // 批次指令：畫出所有集結點→防護站路線（程式處理，非 AI）
+  var batchEvac = isBatchEvacRouteQuery(q);
+  if (batchEvac) drawAllEvacRoutes();
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
@@ -1318,7 +1372,7 @@ async function sendQA() {
     var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
-    if (routeItems.length > 0) {
+    if (routeItems.length > 0 && !batchEvac) {
       processRouteItems(routeItems);
     }
 
@@ -1560,6 +1614,7 @@ async function geocodePlace(placeName, regionHint) {
 // 清除 AI 路線（供使用者手動清除）
 function clearAIRoute() {
   if (layerGroups.aiRoute) layerGroups.aiRoute.clearLayers();
+  if (layerGroups.evacRoutes) layerGroups.evacRoutes.clearLayers();
 }
 
 
@@ -1580,6 +1635,9 @@ async function sendQA() {
 
   // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
   var routeCtx = null;
+  // 批次指令：畫出所有集結點→防護站路線（程式處理，非 AI）
+  var batchEvac = isBatchEvacRouteQuery(q);
+  if (batchEvac) drawAllEvacRoutes();
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
@@ -1646,7 +1704,7 @@ async function sendQA() {
     var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
-    if (routeItems.length > 0) {
+    if (routeItems.length > 0 && !batchEvac) {
       processRouteItems(routeItems);
     }
 
@@ -1708,6 +1766,14 @@ function addQAMessage(text,role){
   if(role==='ai')div.innerHTML='<div class="msg-label">AI 建議</div>'+text.replace(/\n/g,'<br>');
   else div.textContent=text;
   el.appendChild(div);el.scrollTop=el.scrollHeight;
+  return div;
+}
+
+// 更新 AI 訊息泡泡內容（保留標籤）
+function setQAMessageText(div, text){
+  if(!div) return;
+  div.innerHTML='<div class="msg-label">AI 建議</div>'+text.replace(/\n/g,'<br>');
+  var el=document.getElementById('qaMessages'); if(el) el.scrollTop=el.scrollHeight;
 }
 
 // ── 上傳 ──────────────────────────────────────────────────────
