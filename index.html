@@ -520,15 +520,6 @@ function getKnowledge() {
   return knowledgeCache[plantKey] || driveKnowledge || PLAN_KNOWLEDGE;
 }
 
-var DEFAULT_STATIONS = [
-  {id:'s1',name:'野柳測站',lat:25.131,lng:121.686,value:0.09,type:'auto'},
-  {id:'s2',name:'萬里測站',lat:25.181,lng:121.680,value:0.08,type:'auto'},
-  {id:'s3',name:'金山測站',lat:25.229,lng:121.641,value:0.10,type:'auto'},
-  {id:'s4',name:'石門測站',lat:25.295,lng:121.564,value:0.11,type:'auto'},
-  {id:'s5',name:'三芝測站',lat:25.260,lng:121.502,value:0.09,type:'auto'},
-  {id:'s6',name:'廠區南側[現場]',lat:25.194,lng:121.663,value:0.12,type:'manual'}
-];
-
 var PLANTS = {
   nuclear2:{lat:25.20278,lng:121.66250,name:'核二廠（新北萬里）',zoom:12},
   nuclear1:{lat:25.297,lng:121.570,name:'核一廠（新北石門）',zoom:12},
@@ -772,8 +763,7 @@ async function fetchFromSheets(){
       var sb=document.getElementById('sheetsStatus');if(sb)sb.textContent='資料來源：Google Sheets（'+new Date().toLocaleTimeString('zh-TW')+' 更新，'+data.length+' 站）';
     }
   }catch(e){
-    stations=DEFAULT_STATIONS;drawStations(stations);renderStationList(stations);
-    var sb=document.getElementById('sheetsStatus');if(sb){sb.textContent='⚠ Sheets 讀取失敗，顯示預設資料（請執行 Apps Script testFetch）';sb.style.background='#fef9c3';sb.style.color='#92400e';}
+    var sb=document.getElementById('sheetsStatus');if(sb){sb.textContent='⚠ Sheets 讀取失敗，無法顯示測站資料（'+e.message+'）';sb.style.background='#fee2e2';sb.style.color='#dc2626';}
   }
 }
 function checkThresholds(data){
@@ -1842,7 +1832,7 @@ function submitManual(){
   var lng=parseFloat(document.getElementById('uploadLng').value);
   if(!name||isNaN(value)||isNaN(lat)||isNaN(lng)){alert('請填入地點、輻射值與座標');return;}
   var entry={id:'m'+Date.now(),name:name,value:value,lat:lat,lng:lng,type:'manual'};
-  manualData.push(entry);stations=DEFAULT_STATIONS.concat(manualData);
+  manualData.push(entry);stations=stations.filter(function(s){return s.type!=='manual';}).concat(manualData);
   drawStations(stations);renderStationList(stations);
   var ml=document.getElementById('manualList');var vc=getVC(value);
   ml.innerHTML+='<div style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center"><div style="width:8px;height:8px;border-radius:50%;background:'+vc.dot+';flex-shrink:0"></div><div style="flex:1;font-size:13px;color:var(--text)">'+name+'</div><div class="'+vc.cls+'" style="font-family:var(--mono);font-size:13px">'+value.toFixed(3)+'</div></div>';
@@ -1871,8 +1861,9 @@ async function runSimulate(){
   drawEPZ();drawRoutes();drawHospitals();
   // 切換至對應電廠知識庫
   fetchKnowledge(getPlantKey(plant));
-  stations=DEFAULT_STATIONS.map(function(s,i){return Object.assign({},s,{value:i===0?value:s.value*0.8});});
-  stations[0].name=plant.name+' 廠區 [模擬]';
+  stations=stations.map(function(s,i){return Object.assign({},s,{value:i===0?value:parseFloat((value*0.3*Math.random()).toFixed(3))});});
+  if(stations.length===0) stations=[{id:'sim0',name:plant.name+' 廠區 [模擬]',lat:plant.lat,lng:plant.lng,value:value,type:'manual'}];
+  else stations[0]=Object.assign({},stations[0],{name:plant.name+' 廠區 [模擬]'});
   drawStations(stations);renderStationList(stations);
   document.getElementById('alertTime').textContent='【模擬】'+plant.name+' '+level+(disasters.length?' + '+disasters.join('、'):'');
   document.getElementById('alertStations').innerHTML='<div style="background:#fee2e2;border-radius:6px;padding:10px 12px"><div style="font-size:13px;font-weight:600;color:#dc2626">'+level+' 廠區事故 — '+plant.name+'</div><div style="font-size:13px;color:var(--text);margin-top:3px">最高輻射值：'+value.toFixed(2)+' μSv/h</div>'+(disasters.length?'<div style="font-size:13px;color:#ea580c;margin-top:2px">次生災害：'+disasters.join('、')+'</div>':'')+(desc?'<div style="font-size:13px;color:var(--text);margin-top:3px;font-style:italic">'+desc+'</div>':'')+'</div>';
