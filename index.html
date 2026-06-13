@@ -31,7 +31,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .nav-search-btn{background:none;border:none;cursor:pointer;color:rgba(93,212,200,0.7);font-size:15px;padding:0;line-height:1;transition:color .2s}
 .nav-search-btn:hover{color:var(--teal)}
 .ai-provider-toggle{display:flex;border:1px solid rgba(93,212,200,0.35);border-radius:4px;overflow:hidden;flex-shrink:0}
-.ai-prov-btn{background:none;border:none;color:rgba(255,255,255,0.45);font-size:11px;padding:3px 8px;cursor:pointer;font-family:var(--mono);transition:all .15s;white-space:nowrap}
+.ai-prov-btn{background:none;border:none;color:rgba(255,255,255,0.45);font-size:12px;padding:3px 8px;cursor:pointer;font-family:var(--mono);transition:all .15s;white-space:nowrap}
 .ai-prov-btn.active{background:rgba(93,212,200,0.25);color:#5dd4c8}
 
 .map-wrap{flex:1;position:relative;overflow:hidden}
@@ -57,8 +57,8 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .wind-arrow-wrap{width:48px;height:48px;border-radius:50%;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .wind-arrow{font-size:22px;display:inline-block;transition:transform 0.5s;color:var(--accent)}
 .wind-value{font-family:var(--mono);font-size:18px;color:var(--text);margin:2px 0}
-.wind-station{font-size:11px;color:var(--text-dim)}
-.sec-label{font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;padding:8px 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.wind-station{font-size:12px;color:var(--text-dim)}
+.sec-label{font-family:var(--mono);font-size:12px;color:var(--text-dim);letter-spacing:2px;padding:8px 0 6px;border-bottom:1px solid var(--border);margin-bottom:8px}
 .station-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);margin-bottom:5px;background:#f8fafc;cursor:pointer;transition:border-color 0.2s}
 .station-item:hover{border-color:var(--accent)}
 .station-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
@@ -87,14 +87,14 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .ai-gen-btn:disabled{opacity:0.5;cursor:not-allowed}
 .rec-card{background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:11px;margin-bottom:8px}
 .rec-header{display:flex;align-items:center;gap:6px;margin-bottom:5px}
-.rec-priority{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:3px}
+.rec-priority{font-family:var(--mono);font-size:12px;padding:2px 7px;border-radius:3px}
 .p-urgent{background:rgba(220,38,38,0.1);color:#dc2626;border:1px solid rgba(220,38,38,0.3)}
 .p-high{background:rgba(234,88,12,0.1);color:#ea580c;border:1px solid rgba(234,88,12,0.3)}
 .p-medium{background:rgba(217,119,6,0.1);color:#d97706;border:1px solid rgba(217,119,6,0.3)}
 .p-low{background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.25)}
 .rec-title{font-size:20px;color:var(--text);font-weight:500}
 .rec-body{font-size:18px;color:var(--text);line-height:1.6;margin-bottom:8px}
-.rec-cite{font-family:var(--mono);font-size:11px;color:var(--accent);cursor:pointer}
+.rec-cite{font-family:var(--mono);font-size:12px;color:var(--accent);cursor:pointer}
 .rec-source{display:none;background:rgba(0,119,204,0.05);border:1px solid rgba(0,119,204,0.15);border-radius:4px;padding:8px;font-size:12px;color:var(--text-dim);margin-top:5px}
 .rec-feedback{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:6px;border-top:1px solid var(--border)}
 .adopt-btn{padding:3px 10px;border-radius:12px;border:1px solid;cursor:pointer;font-size:12px;font-family:var(--sans);transition:all 0.2s;background:transparent}
@@ -107,7 +107,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .qa-msg{margin-bottom:10px;padding:12px 15px;border-radius:6px;font-size:19px;line-height:1.6}
 .qa-msg.user{background:#e0f2fe;border:1px solid #bae6fd;color:var(--text)}
 .qa-msg.ai{background:#f8fafc;border:1px solid var(--border);color:var(--text)}
-.qa-msg.ai .msg-label{font-family:var(--mono);font-size:10px;color:var(--accent);margin-bottom:3px}
+.qa-msg.ai .msg-label{font-family:var(--mono);font-size:12px;color:var(--accent);margin-bottom:3px}
 .qa-input-row{display:flex;gap:8px}
 .qa-input{flex:1;border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:19px;font-family:var(--sans);outline:none;resize:none;background:#f8fafc;color:var(--text)}
 .qa-input:focus{border-color:var(--accent);background:#fff}
@@ -151,14 +151,14 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
 .evac-panel{position:fixed;top:50px;left:62px;z-index:999;background:rgba(255,255,255,0.97);border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:8px 10px;width:172px;display:none}
 .evac-panel.open{display:block}
-.evac-section-label{font-size:10px;font-weight:700;color:var(--navy);letter-spacing:0.8px;padding:3px 0 5px}
+.evac-section-label{font-size:12px;font-weight:700;color:var(--navy);letter-spacing:0.8px;padding:3px 0 5px}
 .evac-row{display:flex;gap:4px;margin-bottom:5px}
-.evac-toggle{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border:1px solid var(--border);border-radius:5px;cursor:pointer;background:#f8fafc;transition:all 0.2s;font-size:9px;color:var(--text-dim);text-align:center;line-height:1.3;user-select:none}
+.evac-toggle{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border:1px solid var(--border);border-radius:5px;cursor:pointer;background:#f8fafc;transition:all 0.2s;font-size:12px;color:var(--text-dim);text-align:center;line-height:1.3;user-select:none}
 .evac-toggle img{width:22px;height:22px;opacity:0.35;transition:opacity 0.2s}
 .evac-toggle.on{border-color:var(--accent);background:rgba(0,119,204,0.07);color:var(--accent)}
 .evac-toggle.on img{opacity:1}
 .evac-divider{height:1px;background:var(--border);margin:3px 0 6px}
-.evac-status{font-size:9px;color:var(--text-dim);text-align:center;padding-top:3px;min-height:14px}
+.evac-status{font-size:12px;color:var(--text-dim);text-align:center;padding-top:3px;min-height:14px}
 
 .map-ctx-menu{display:none;position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);overflow:hidden;min-width:148px;font-family:var(--sans)}
 .map-ctx-menu.show{display:block}
@@ -296,7 +296,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       <div class="wind-card">
         <div class="wind-arrow-wrap"><span class="wind-arrow" id="windArrow">↑</span></div>
         <div>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">風向 / 風速</div>
+          <div style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">風向 / 風速</div>
           <div class="wind-value" id="windValue">讀取中…</div>
           <div class="wind-station" id="windStation">氣象站：萬里</div>
         </div>
@@ -362,7 +362,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     </div>
     <div style="padding:14px 18px;overflow-y:auto;flex:1">
       <div id="alertStations" style="margin-bottom:12px"></div>
-      <div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:2px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">AI 防護行動建議</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--text-dim);letter-spacing:2px;padding:6px 0;border-bottom:1px solid var(--border);margin-bottom:8px">AI 防護行動建議</div>
       <div id="alertAI" style="font-size:14px;color:var(--text);line-height:1.7"><div style="text-align:center;padding:14px;color:var(--text-dim)"><span class="spinner spinner-dark"></span> AI 分析中…</div></div>
     </div>
     <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0">
@@ -715,7 +715,7 @@ function renderStationList(data){
   var el=document.getElementById('stationList'); if(!el)return;
   el.innerHTML=data.map(function(s){
     var vc=getVC(s.value);
-    return '<div class="station-item" onclick="map.setView(['+s.lat+','+s.lng+'],14)"><div class="station-dot" style="background:'+vc.dot+'"></div><div style="flex:1"><div style="font-size:14px;color:var(--text)">'+s.name+'</div><div style="font-size:11px;color:var(--text-dim)">'+(s.type==='manual'?'人工量測':'原能會監測站')+'</div></div><div class="station-value '+vc.cls+'">'+s.value.toFixed(3)+'<span style="font-size:10px;color:var(--text-dim)"> μSv/h</span></div></div>';
+    return '<div class="station-item" onclick="map.setView(['+s.lat+','+s.lng+'],14)"><div class="station-dot" style="background:'+vc.dot+'"></div><div style="flex:1"><div style="font-size:14px;color:var(--text)">'+s.name+'</div><div style="font-size:12px;color:var(--text-dim)">'+(s.type==='manual'?'人工量測':'原能會監測站')+'</div></div><div class="station-value '+vc.cls+'">'+s.value.toFixed(3)+'<span style="font-size:12px;color:var(--text-dim)"> μSv/h</span></div></div>';
   }).join('');
 }
 
@@ -831,7 +831,7 @@ async function getTDXToken(){
     var d=await res.json();tdxToken=d.access_token;tdxTokenExpiry=Date.now()+(d.expires_in-60)*1000;return tdxToken;
   }catch(e){
     var card=document.getElementById('trafficCard');
-    if(card) card.innerHTML='<div style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px">即時路況 — 國道1/3號</div><div style="font-size:11px;color:#f87171">⚠ Token 取得失敗：'+e.message+'</div>';
+    if(card) card.innerHTML='<div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px">即時路況 — 國道1/3號</div><div style="font-size:12px;color:#f87171">⚠ Token 取得失敗：'+e.message+'</div>';
     return null;
   }
 }
@@ -905,7 +905,7 @@ async function fetchTDXTraffic(){
     tdxTrafficSummary='';
     console.warn('TDX:',e.message);
     var card=document.getElementById('trafficCard');
-    if(card) card.innerHTML='<div style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px">即時路況 — 國道1/3號</div><div style="font-size:11px;color:#f87171">⚠ 路況取得失敗：'+e.message+'</div>';
+    if(card) card.innerHTML='<div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px">即時路況 — 國道1/3號</div><div style="font-size:12px;color:#f87171">⚠ 路況取得失敗：'+e.message+'</div>';
   }
 }
 
@@ -929,7 +929,7 @@ function updateTrafficCard(n1, n3){
   if(!card) return;
   var c1=speedColor(n1), c3=speedColor(n3);
   card.innerHTML =
-    '<div style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:1px;margin-bottom:6px">路況更新 '+new Date().toLocaleTimeString('zh-TW',{hour12:false})+'</div>'+
+    '<div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.6);letter-spacing:1px;margin-bottom:6px">路況更新 '+new Date().toLocaleTimeString('zh-TW',{hour12:false})+'</div>'+
     '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
       '<div style="width:8px;height:8px;border-radius:50%;background:'+(c3||'#888')+';flex-shrink:0"></div>'+
       '<span style="font-size:12px;color:#fff;flex:1">國道3號</span>'+
@@ -983,12 +983,12 @@ function renderRecommendations(data){
   (data.recommendations||[]).forEach(function(r,i){
     var pcls=pMap[r.priority]||'p-low';
     var isExt=r.is_external===true;
-    var srcBadge=isExt?'<span style="font-size:11px;background:rgba(234,88,12,0.1);color:#ea580c;border:1px solid rgba(234,88,12,0.3);padding:1px 6px;border-radius:3px;font-family:var(--mono)">⚠ 國際標準</span>':'<span style="font-size:11px;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.25);padding:1px 6px;border-radius:3px;font-family:var(--mono)">計畫書</span>';
+    var srcBadge=isExt?'<span style="font-size:12px;background:rgba(234,88,12,0.1);color:#ea580c;border:1px solid rgba(234,88,12,0.3);padding:1px 6px;border-radius:3px;font-family:var(--mono)">⚠ 國際標準</span>':'<span style="font-size:12px;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.25);padding:1px 6px;border-radius:3px;font-family:var(--mono)">計畫書</span>';
     var recId='rec_'+Date.now()+'_'+i;
     recStore[recId]=r;
-    html+='<div class="rec-card" id="'+recId+'"><div class="rec-header"><span class="rec-priority '+pcls+'">'+r.priority+'</span><span class="rec-title" style="flex:1">'+r.title+'</span>'+srcBadge+'</div><div class="rec-body">'+r.action+'</div><div class="rec-cite" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'block\'?\'none\':\'block\'">依據：'+(r.source_chapter||'')+' ('+(r.source_name||'')+') ▼</div><div class="rec-source">'+(r.source_text||'')+'<div style="margin-top:4px;color:var(--text-dim)">'+(r.reason||'')+'</div>'+(isExt?'<div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:4px;padding:6px;margin-top:5px;font-size:12px;color:#ea580c">⚠ 此建議非出自新北市計畫書，而是參考 <strong>'+(r.source_name||'國際標準')+'</strong></div>':'')+'</div><div class="rec-feedback"><button class="adopt-btn adopt-yes" onclick="adoptRec(\''+recId+'\',true,this)">✔ 已採納</button><button class="adopt-btn adopt-no" onclick="adoptRec(\''+recId+'\',false,this)">✘ 未採納</button><span style="font-size:11px;color:var(--text-dim);margin-left:auto" id="status_'+recId+'">待確認</span></div></div>';
+    html+='<div class="rec-card" id="'+recId+'"><div class="rec-header"><span class="rec-priority '+pcls+'">'+r.priority+'</span><span class="rec-title" style="flex:1">'+r.title+'</span>'+srcBadge+'</div><div class="rec-body">'+r.action+'</div><div class="rec-cite" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'block\'?\'none\':\'block\'">依據：'+(r.source_chapter||'')+' ('+(r.source_name||'')+') ▼</div><div class="rec-source">'+(r.source_text||'')+'<div style="margin-top:4px;color:var(--text-dim)">'+(r.reason||'')+'</div>'+(isExt?'<div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:4px;padding:6px;margin-top:5px;font-size:12px;color:#ea580c">⚠ 此建議非出自新北市計畫書，而是參考 <strong>'+(r.source_name||'國際標準')+'</strong></div>':'')+'</div><div class="rec-feedback"><button class="adopt-btn adopt-yes" onclick="adoptRec(\''+recId+'\',true,this)">✔ 已採納</button><button class="adopt-btn adopt-no" onclick="adoptRec(\''+recId+'\',false,this)">✘ 未採納</button><span style="font-size:12px;color:var(--text-dim);margin-left:auto" id="status_'+recId+'">待確認</span></div></div>';
   });
-  if(data.knowledge_source)html+='<div style="font-size:11px;color:var(--text-dim);text-align:right;padding-top:6px;font-family:var(--mono)">知識來源：'+data.knowledge_source+'</div>';
+  if(data.knowledge_source)html+='<div style="font-size:12px;color:var(--text-dim);text-align:right;padding-top:6px;font-family:var(--mono)">知識來源：'+data.knowledge_source+'</div>';
   document.getElementById('recList').innerHTML=html;
 }
 
@@ -1838,7 +1838,7 @@ async function triggerBirdAnalysis(situation, overStations) {
       overStations.slice(0,5).map(function(s){
         var isU=s.value>=THRESHOLD_ALERT;
         return '<div style="background:'+(isU?'rgba(255,255,255,0.25)':'rgba(255,255,255,0.15)')+';border-radius:4px;padding:5px 10px;margin-bottom:4px;display:flex;align-items:center;gap:8px">' +
-          '<span style="font-size:11px">'+(isU?'🔴 緊急':'🟡 警戒')+'</span>' +
+          '<span style="font-size:12px">'+(isU?'🔴 緊急':'🟡 警戒')+'</span>' +
           '<span style="flex:1;font-size:13px;color:#fff">'+s.name+'</span>' +
           '<span style="font-family:var(--mono);font-size:14px;font-weight:bold;color:#fef08a">'+s.value.toFixed(3)+' μSv/h</span>' +
         '</div>';
@@ -2665,7 +2665,7 @@ window.addEventListener('load',function(){
   padding:10px 14px; min-width:220px;
   box-shadow:0 4px 12px rgba(0,0,0,0.3);
 ">
-  <div style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.5);letter-spacing:1px;margin-bottom:5px">即時路況 — 國道1/3號</div>
+  <div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.5);letter-spacing:1px;margin-bottom:5px">即時路況 — 國道1/3號</div>
   <div style="font-size:12px;color:rgba(255,255,255,0.6);display:flex;align-items:center;gap:6px">
     <span>⟳</span> 按左側 ↻ 更新路況
   </div>
