@@ -616,7 +616,7 @@ function initMap(){
     showMapCtxMenu(e.containerPoint,e.latlng,null);
   });
   document.addEventListener('click',hideMapCtxMenu);
-  drawEPZ();drawRoutes(null,null);drawHospitals();drawStations(DEFAULT_STATIONS);drawNuclearPlants();
+  drawEPZ();drawRoutes(null,null);drawHospitals();drawNuclearPlants();
   var mapEl=document.getElementById('map');
   mapEl.addEventListener('mousemove',function(e){
     var rect=mapEl.getBoundingClientRect();
@@ -2577,7 +2577,6 @@ window.addEventListener('load',function(){
   loadRoadblocks();
   setTimeout(function(){if(map)map.invalidateSize();},200);
   initBirdDrag();
-  stations=DEFAULT_STATIONS;drawStations(stations);renderStationList(stations);
   fetchKnowledge('nuclear2'); // 預設核二廠
   setTimeout(function(){ fetchKnowledge('nuclear3'); }, 3000); // 背景預載核三廠
   setTimeout(function(){ fetchKnowledge('nuclear1'); }, 6000); // 背景預載核一廠
