@@ -70,6 +70,9 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 #aiAssistant .bird-circle img{width:100%;height:100%;object-fit:contain;mix-blend-mode:screen}
 .ai-badge{position:absolute;top:2px;right:2px;background:var(--red);color:#fff;border-radius:50%;width:24px;height:24px;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+/* 里別警示：集結點圖示外圍閃爍框（疏散紅 / 掩蔽紫） */
+.boro-alert-ring{box-sizing:border-box;width:100%;height:100%;border:3px solid var(--ar-color,#dc2626);border-radius:8px;animation:boroAlertPulse 1.1s ease-in-out infinite}
+@keyframes boroAlertPulse{0%,100%{transform:scale(0.86);opacity:1;box-shadow:0 0 0 0 var(--ar-glow,rgba(220,38,38,0.55))}50%{transform:scale(1.12);opacity:0.55;box-shadow:0 0 14px 6px var(--ar-glow,rgba(220,38,38,0))}}
 
 #birdPanel{display:none;position:absolute;left:0;top:0;width:520px;height:74vh;min-width:360px;min-height:360px;max-width:calc(100vw - 120px);max-height:calc(100vh - 90px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.25);z-index:2400;flex-direction:column;overflow:auto;pointer-events:auto;resize:both;transform-origin:0 0}
 #birdPanel.open{display:flex}
@@ -525,8 +528,15 @@ function buildHospitalContext() {
 // 把 Sheet 疏散地點清單注入 prompt，讓 AI 直接選用正確名稱
 function buildEvacPlacesContext() {
   var parts = [];
-  if (evacSheetData.meetings.length)
-    parts.push('集結點：' + evacSheetData.meetings.map(function(m){ return m.name; }).join('、'));
+  if (evacSheetData.meetings.length) {
+    // 里別清單（去重）－供 alert_boro 使用，AI 才知道有效的里別名稱
+    var boros = [];
+    evacSheetData.meetings.forEach(function(m){
+      if (m.boro && boros.indexOf(m.boro) < 0) boros.push(m.boro);
+    });
+    if (boros.length) parts.push('里別（可用於 alert_boro）：' + boros.join('、'));
+    parts.push('集結點：' + evacSheetData.meetings.map(function(m){ return m.name + (m.boro ? '(' + m.boro + ')' : ''); }).join('、'));
+  }
   if (evacSheetData.shields.length)
     parts.push('防護站：' + evacSheetData.shields.map(function(s){ return s.name; }).join('、'));
   if (evacSheetData.shelters.length)
@@ -636,6 +646,7 @@ function initMap(){
   layerGroups.shield2 =L.layerGroup();
   layerGroups.shelter2=L.layerGroup();
   layerGroups.roadblock=L.layerGroup().addTo(map);
+  layerGroups.boroAlert=L.layerGroup().addTo(map); // 里別疏散/掩蔽閃爍警示框
   map.on('contextmenu',function(e){
     L.DomEvent.preventDefault(e.originalEvent);
     showMapCtxMenu(e.containerPoint,e.latlng,null);
@@ -1514,7 +1525,7 @@ async function sendQA() {
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
-  var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
+  var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃爍|里|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
   var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
@@ -2033,6 +2044,8 @@ var AI_DRAW_RULE = [
   '  marker:{"type":"marker","lat":數字,"lng":數字,"label":"文字","color":"#色"}',
   '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
   '  boundary:{"type":"boundary","name":"里/區/市名稱（如安樂里、萬里區）","color":"#色","fillOpacity":0.18} ← 系統自動查詢真實行政邊界，禁止自己猜多邊形座標',
+  '  alert_boro:{"type":"alert_boro","boro":"里別名稱（如野柳里）","mode":"疏散或掩蔽"} ← 在該里集結點圖示外圍加閃爍框（疏散=紅、掩蔽=紫）。座標由系統查詢，勿自填。',
+  '  ★ 當某個里別需要「疏散」或「室內掩蔽」時，draw 必須加入該里的 alert_boro，讓現場看到哪些集結點被警示。可同時對多個里各加一個 alert_boro。',
   '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","waypoints":[],"color":"#e85d04"} ← waypoints 填繞道地名，可空陣列',
   '  ★ 凡涉及路線/怎麼走/疏散路徑，draw 必須含 route。凡涉及村里/區域範圍，draw 必須用 boundary 而非 polygon。',
   '  ★ route 的 origin/destination 必須【一字不差】使用上方「疏散地點清單」中的完整名稱（如「中幅市民活動中心」），不可自行改寫或簡化。',
@@ -2094,6 +2107,9 @@ function drawAIShapes(items) {
           color:color, weight:2,
           fillColor:color, fillOpacity:item.fillOpacity||0.1
         }).bindTooltip(item.label||'', {sticky:true}).addTo(layerGroups.aiDraw);
+      } else if (item.type === 'alert_boro') {
+        // 里別疏散/掩蔽警示：集結點圖示外圍閃爍框
+        highlightBoroMeetings(item.boro || item.name || item.label || '', item.mode || '');
       } else if (item.type === 'boundary') {
         var bName = item.name || item.label || '';
         var bColor = color;
@@ -2113,6 +2129,71 @@ function drawAIShapes(items) {
 
 function clearAIShapes() {
   if (layerGroups.aiDraw) layerGroups.aiDraw.clearLayers();
+  clearBoroAlerts();
+}
+
+// 清除里別閃爍警示框
+function clearBoroAlerts() {
+  if (layerGroups.boroAlert) layerGroups.boroAlert.clearLayers();
+}
+
+// 里別名稱正規化（去掉 *、空白、結尾「里」），供模糊比對
+function normBoro(s) {
+  return (s || '').replace(/[*\s]/g, '').replace(/里$/, '');
+}
+
+// AI 指令：在指定里別的集結點圖示外圍加閃爍框（mode:'疏散'紅 / '掩蔽'紫）
+async function highlightBoroMeetings(boroName, mode) {
+  if (!boroName) return { count: 0, names: [] };
+  // 資料還沒載入就先載入
+  if (!evacSheetData.meetings.length) {
+    try { await loadEvacuationData(); } catch (e) {}
+  }
+  clearBoroAlerts();
+
+  var target = normBoro(boroName);
+  if (!target) return { count: 0, names: [] };
+
+  var matched = evacSheetData.meetings.filter(function(m) {
+    if (!m.boro || !m.lat || !m.lng) return false;
+    var b = normBoro(m.boro);
+    return b && (b.indexOf(target) >= 0 || target.indexOf(b) >= 0);
+  });
+  if (!matched.length) {
+    console.warn('里別警示：找不到集結點', boroName);
+    return { count: 0, names: [] };
+  }
+
+  var isShelter = /掩蔽|室內|留在/.test(mode || '');
+  var col  = isShelter ? '#8b5cf6' : '#dc2626';
+  var glow = isShelter ? 'rgba(139,92,246,0.5)' : 'rgba(220,38,38,0.5)';
+  var ring = L.divIcon({
+    className: '',
+    html: '<div class="boro-alert-ring" style="--ar-color:' + col + ';--ar-glow:' + glow + '"></div>',
+    iconSize: [44, 44], iconAnchor: [22, 36]   // 環繞 28px 集結點圖示（錨點對齊圖示中心）
+  });
+
+  var pts = [];
+  matched.forEach(function(m) {
+    // 確保該集結點所屬圖層是顯示的，否則只會看到框、看不到圖示
+    var key = m._layerKey;
+    if (key && layerGroups[key] && !map.hasLayer(layerGroups[key])) {
+      map.addLayer(layerGroups[key]);
+      var el = document.getElementById('evac-' + key);
+      if (el) el.classList.add('on');
+    }
+    L.marker([m.lat, m.lng], { icon: ring, interactive: false, zIndexOffset: 1000 })
+      .addTo(layerGroups.boroAlert);
+    pts.push([m.lat, m.lng]);
+  });
+
+  // 鏡頭聚焦到警示的集結點
+  if (pts.length === 1) map.setView(pts[0], Math.max(map.getZoom(), 15));
+  else map.fitBounds(L.latLngBounds(pts).pad(0.4));
+
+  var names = matched.map(function(m) { return m.name; });
+  console.log('里別警示[' + (isShelter ? '掩蔽' : '疏散') + ']', boroName, '→', names.length, '個集結點:', names.join('、'));
+  return { count: matched.length, names: names };
 }
 
 
@@ -2509,7 +2590,7 @@ function parseEvacData(rows){
   return{meetings:meetings,shields:shieldArr,shelters:shelterArr};
 }
 
-function drawEvacItemsDirect(items,layerGroup,icon,typeLabel){
+function drawEvacItemsDirect(items,layerGroup,icon,typeLabel,layerKey){
   var count=0;
   items.forEach(function(item){
     if(!item.lat||!item.lng) return;
@@ -2519,7 +2600,9 @@ function drawEvacItemsDirect(items,layerGroup,icon,typeLabel){
       pop+='<div class="popup-meta" style="color:#1d4ed8">防護站：'+item.shieldName+'</div>';
     if(item.shelterNames&&item.shelterNames.length)
       pop+='<div class="popup-meta" style="color:#047857">收容所：'+item.shelterNames.join('、')+'</div>';
-    L.marker([item.lat,item.lng],{icon:icon}).addTo(layerGroup).bindPopup(pop);
+    var m=L.marker([item.lat,item.lng],{icon:icon}).addTo(layerGroup).bindPopup(pop);
+    // 記住 marker 與所屬圖層，供 AI 里別警示（閃爍框）定位
+    item._marker=m; item._layerKey=layerKey;
     count++;
   });
   return count;
@@ -2549,9 +2632,9 @@ async function loadEvacuationData(){
       var text=await resp.text();
       var rows=parseFullCSV(text);
       var data=parseEvacData(rows);
-      var cm=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點');
-      var cs=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站');
-      var cr=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所');
+      var cm=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點','meeting'+pl.key);
+      var cs=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站','shield'+pl.key);
+      var cr=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所','shelter'+pl.key);
       console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr);
       // 存入全域，供 AI 路線查詢使用
       evacSheetData.shields  = evacSheetData.shields.concat(data.shields);
