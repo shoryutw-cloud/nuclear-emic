@@ -2365,7 +2365,15 @@ function showMapCtxMenu(containerPt, latlng, existingData){
 function hideMapCtxMenu(){document.getElementById('mapCtxMenu').classList.remove('show');}
 
 function addRoadblockMarker(id,lat,lng){
+  // 畫 150m 判定圓（與路障偵測門檻一致）
+  var circle=L.circle([lat,lng],{
+    radius:150,
+    color:'#dc2626',fillColor:'#dc2626',fillOpacity:0.15,
+    weight:2,dashArray:'6,4',interactive:false
+  }).addTo(layerGroups.roadblock);
+
   var marker=L.marker([lat,lng],{icon:getBlockIcon()}).addTo(layerGroups.roadblock);
+  marker._blockCircle=circle; // 刪除 marker 時一起移除
   marker.bindPopup('<div class="popup-title">🚧 路障</div><div class="popup-meta">'+lat.toFixed(5)+', '+lng.toFixed(5)+'<br><small>右鍵刪除</small></div>');
   marker.on('contextmenu',function(e){
     L.DomEvent.preventDefault(e.originalEvent);
@@ -2454,6 +2462,7 @@ function doDeleteRoadblock(){
   if(!_ctxPendingMarker||!_ctxPendingId) return;
   var marker=_ctxPendingMarker, id=_ctxPendingId;
   _ctxPendingMarker=null; _ctxPendingId=null;
+  if(marker._blockCircle) layerGroups.roadblock.removeLayer(marker._blockCircle);
   layerGroups.roadblock.removeLayer(marker);
   fetch(WEBAPP_URL,{method:'POST',
     body:JSON.stringify({action:'delete_roadblock',id:id})
