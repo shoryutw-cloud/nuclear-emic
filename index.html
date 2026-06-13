@@ -657,20 +657,40 @@ function drawRoutes(n1avg, n3avg){
   });
 }
 
+// 從 Sheet 讀入的醫院資料（全域，AI 路線查詢也用）
+var hospitalData = [];
+
+async function loadHospitalData(){
+  var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+  try{
+    var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('輻傷醫院');
+    var resp=await fetch(url);
+    if(!resp.ok) return;
+    var rows=parseFullCSV(await resp.text());
+    hospitalData=[];
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i];
+      if(!r||r.length<4) continue;
+      var name=(r[1]||'').trim();
+      var coord=parseCoord((r[3]||'').replace(/[()]/g,''));
+      var level=(r[5]||'').trim();
+      if(!name||!coord) continue;
+      var color=level.includes('三級')?'#dc2626':'#f59e0b';
+      hospitalData.push({name:name,level:level,lat:coord.lat,lng:coord.lng,color:color});
+    }
+    console.log('輻傷醫院載入:',hospitalData.length,'間');
+    if(layerGroups.hospital) drawHospitals();
+  }catch(e){
+    console.warn('loadHospitalData 失敗:',e.message);
+  }
+}
+
 function drawHospitals(){
   layerGroups.hospital.clearLayers();
-  var hospitals=[
-    {name:'淡水馬偕',level:'二級',lat:25.167,lng:121.447,color:'#f59e0b'},
-    {name:'基隆長庚',level:'二級',lat:25.118,lng:121.754,color:'#f59e0b'},
-    {name:'部立基隆',level:'二級',lat:25.126,lng:121.741,color:'#f59e0b'},
-    {name:'北海岸金山',level:'二級',lat:25.226,lng:121.637,color:'#f59e0b'},
-    {name:'台北馬偕',level:'三級',lat:25.063,lng:121.524,color:'#dc2626'},
-    {name:'林口長庚',level:'三級',lat:25.076,lng:121.350,color:'#dc2626'},
-    {name:'台北榮總',level:'三級',lat:25.113,lng:121.515,color:'#dc2626'}
-  ];
   var hIcon=L.icon({iconUrl:'hospital.png',iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});
-  hospitals.forEach(function(h){
-    L.marker([h.lat,h.lng],{icon:hIcon}).addTo(layerGroups.hospital).bindPopup('<div class="popup-title">'+h.name+'</div><div class="popup-meta">'+h.level+'輻傷醫療 表4-4</div>');
+  hospitalData.forEach(function(h){
+    L.marker([h.lat,h.lng],{icon:hIcon}).addTo(layerGroups.hospital)
+      .bindPopup('<div class="popup-title">'+h.name+'</div><div class="popup-meta">'+h.level+'輻傷醫療</div>');
   });
 }
 
@@ -986,15 +1006,7 @@ function renderRecommendations(data){
 // AI 路線規劃系統（OSRM + 關鍵字偵測）
 // ══════════════════════════════════════════════════════════════
 
-var AI_ROUTE_HOSPITALS = [
-  { name:'北海岸金山醫院', level:'二級', lat:25.226, lng:121.637 },
-  { name:'淡水馬偕醫院',   level:'二級', lat:25.167, lng:121.447 },
-  { name:'基隆長庚醫院',   level:'二級', lat:25.118, lng:121.754 },
-  { name:'部立基隆醫院',   level:'二級', lat:25.126, lng:121.741 },
-  { name:'台北馬偕醫院',   level:'三級', lat:25.063, lng:121.524 },
-  { name:'林口長庚醫院',   level:'三級', lat:25.076, lng:121.350 },
-  { name:'台北榮總',       level:'三級', lat:25.113, lng:121.515 },
-];
+// hospitalData（從 Sheet 動態載入）取代原本的 AI_ROUTE_HOSPITALS
 
 var AI_ROUTE_PLACES = {
   // 核電廠
@@ -1039,10 +1051,10 @@ function haversine(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// 找最近輻傷醫院
+// 找最近輻傷醫院（從 Sheet 載入的 hospitalData）
 function findNearestHospitals(lat, lng, count) {
   count = count || 3;
-  return AI_ROUTE_HOSPITALS
+  return hospitalData
     .map(function(h) { return Object.assign({}, h, { dist: haversine(lat, lng, h.lat, h.lng) }); })
     .sort(function(a,b) { return a.dist - b.dist; })
     .slice(0, count);
@@ -1189,9 +1201,9 @@ function findPlaceCoords(name) {
   for (var key in AI_ROUTE_PLACES) {
     if (name.indexOf(key) >= 0 || key.indexOf(name) >= 0) return AI_ROUTE_PLACES[key];
   }
-  // 2. 醫院
-  for (var i = 0; i < AI_ROUTE_HOSPITALS.length; i++) {
-    var h = AI_ROUTE_HOSPITALS[i];
+  // 2. 醫院（從 Sheet 載入的 hospitalData）
+  for (var i = 0; i < hospitalData.length; i++) {
+    var h = hospitalData[i];
     if (name.indexOf(h.name.replace('醫院','')) >= 0 || h.name.indexOf(name) >= 0) {
       return { lat: h.lat, lng: h.lng, name: h.name };
     }
@@ -1392,15 +1404,7 @@ async function fetchQAHistory(rounds) {
 // AI 路線規劃系統（OSRM + 關鍵字偵測）
 // ══════════════════════════════════════════════════════════════
 
-var AI_ROUTE_HOSPITALS = [
-  { name:'北海岸金山醫院', level:'二級', lat:25.226, lng:121.637 },
-  { name:'淡水馬偕醫院',   level:'二級', lat:25.167, lng:121.447 },
-  { name:'基隆長庚醫院',   level:'二級', lat:25.118, lng:121.754 },
-  { name:'部立基隆醫院',   level:'二級', lat:25.126, lng:121.741 },
-  { name:'台北馬偕醫院',   level:'三級', lat:25.063, lng:121.524 },
-  { name:'林口長庚醫院',   level:'三級', lat:25.076, lng:121.350 },
-  { name:'台北榮總',       level:'三級', lat:25.113, lng:121.515 },
-];
+// hospitalData（從 Sheet 動態載入）取代原本的 AI_ROUTE_HOSPITALS
 
 var AI_ROUTE_PLACES = {
   // 核電廠
@@ -1445,10 +1449,10 @@ function haversine(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// 找最近輻傷醫院
+// 找最近輻傷醫院（從 Sheet 載入的 hospitalData）
 function findNearestHospitals(lat, lng, count) {
   count = count || 3;
-  return AI_ROUTE_HOSPITALS
+  return hospitalData
     .map(function(h) { return Object.assign({}, h, { dist: haversine(lat, lng, h.lat, h.lng) }); })
     .sort(function(a,b) { return a.dist - b.dist; })
     .slice(0, count);
@@ -1557,9 +1561,9 @@ async function detectAndDrawRoute(q) {
 
   // 2. 醫院：名稱比對
   if (!dest) {
-    for (var i = 0; i < AI_ROUTE_HOSPITALS.length; i++) {
-      var h = AI_ROUTE_HOSPITALS[i];
-      var shortName = h.name.replace('醫院','').replace('醫院','');
+    for (var i = 0; i < hospitalData.length; i++) {
+      var h = hospitalData[i];
+      var shortName = h.name.replace('醫院','');
       if (q.indexOf(shortName) >= 0 || q.indexOf(h.name) >= 0) {
         dest = { lat: h.lat, lng: h.lng, name: h.name }; break;
       }
@@ -1604,7 +1608,7 @@ async function detectAndDrawRoute(q) {
     // 把已知地名從問句移除，剩下的可能是目的地名稱
     var remaining = q;
     for (var rkey in AI_ROUTE_PLACES) { remaining = remaining.replace(rkey, ''); }
-    AI_ROUTE_HOSPITALS.forEach(function(h){ remaining = remaining.replace(h.name.replace('醫院',''), ''); });
+    hospitalData.forEach(function(h){ remaining = remaining.replace(h.name.replace('醫院',''), ''); });
     // 移除動詞/介詞/贅詞
     remaining = remaining.replace(/怎麼走|怎樣走|如何到|路線|路徑|距離|最近|到達|到|的|從|去|是|有|嗎|請問|告訴我|導航/g, '').trim();
     if (remaining.length >= 2) {
@@ -2604,6 +2608,7 @@ window.addEventListener('load',function(){
   setTimeout(function(){ fetchKnowledge('nuclear1'); }, 6000); // 背景預載核一廠
   fetchFromSheets();
   setTimeout(function(){ loadEvacuationData(); }, 2000); // 背景預載疏散地點（圖層仍關閉）
+  setTimeout(function(){ loadHospitalData(); }, 1000);   // 背景預載輻傷醫院（從 Sheet）
   fetchWind();
   setInterval(fetchFromSheets, 5 * 1000); // 每5秒
   // TDX 路況改為手動更新（按↻），不自動呼叫以節省用量
