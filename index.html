@@ -2560,13 +2560,9 @@ function checkRouteBlockedByGeometry(routeCoords){
   return null;
 }
 
-// 組合檢查：路名優先，幾何備援
+// 只用幾何比對：路名比對會誤判整條長路，幾何才能精確到「那一段」
 function checkRouteBlocked(routeCoords, stepNames){
   if(!activeRoadblocks.length) return null;
-  if(stepNames&&stepNames.length){
-    var hit=checkRouteBlockedByName(stepNames);
-    if(hit) return hit;
-  }
   return checkRouteBlockedByGeometry(routeCoords);
 }
 
