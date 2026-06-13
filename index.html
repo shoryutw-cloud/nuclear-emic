@@ -1217,6 +1217,36 @@ async function detectAndDrawRoute(q) {
   }
 }
 
+// Nominatim 地名查詢（fallback，限台灣）
+async function geocodePlace(name) {
+  if (!name) return null;
+  try {
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tw&accept-language=zh-TW&q=' + encodeURIComponent(name);
+    var res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    var data = await res.json();
+    if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), name: name };
+  } catch(e) {}
+  return null;
+}
+
+// 找地點（先查本地，找不到再 Nominatim）
+async function findOrGeocodePlace(name) {
+  var r = findPlaceCoords(name);
+  if (r) return r;
+  return await geocodePlace(name);
+}
+
+// 處理 AI 回傳的 route 項目（async，支援 Nominatim fallback）
+async function processRouteItems(routeItems) {
+  for (var i = 0; i < routeItems.length; i++) {
+    var ri = routeItems[i];
+    var orig = await findOrGeocodePlace(ri.origin);
+    var dest = await findOrGeocodePlace(ri.destination);
+    if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
+    if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name || ri.origin, dest.name || ri.destination, ri.color || '#e85d04');
+  }
+}
+
 // 從已知地點清單查座標
 function findPlaceCoords(name) {
   if (!name || name === 'null') return null;
@@ -1355,12 +1385,7 @@ async function sendQA() {
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
     if (routeItems.length > 0 && !routeCtx) {
-      routeItems.forEach(function(ri) {
-        var orig = findPlaceCoords(ri.origin);
-        var dest = findPlaceCoords(ri.destination);
-        if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
-        if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name, dest.name, ri.color || '#e85d04');
-      });
+      processRouteItems(routeItems);
     }
 
     // 4. 寫 AI 回答到 Sheet（存純文字）
@@ -1801,12 +1826,7 @@ async function sendQA() {
     var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
     if (routeItems.length > 0 && !routeCtx) {
-      routeItems.forEach(function(ri) {
-        var orig = findPlaceCoords(ri.origin);
-        var dest = findPlaceCoords(ri.destination);
-        if (!orig) orig = { lat: currentPlant.lat, lng: currentPlant.lng, name: currentPlant.name };
-        if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name, dest.name, ri.color || '#e85d04');
-      });
+      processRouteItems(routeItems);
     }
 
     // 4. 寫 AI 回答到 Sheet（存純文字）
