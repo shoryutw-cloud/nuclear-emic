@@ -334,7 +334,6 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       <div class="layer-grid">
         <div class="layer-toggle on" id="lt-epz"      onclick="toggleLayerPanel('epz','lt-epz')">☢ EPZ 範圍圈</div>
         <div class="layer-toggle on" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">📡 輻射測站</div>
-        <div class="layer-toggle" id="lt-route"    onclick="toggleLayerPanel('route','lt-route')">🛣 疏散路線</div>
         <div class="layer-toggle" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">🏥 輻傷醫院</div>
         <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb">🗺 清除 AI 規劃路線</div>
       </div>
@@ -601,7 +600,6 @@ function initMap(){
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
   layerGroups.station =L.layerGroup().addTo(map);
-  layerGroups.route   =L.layerGroup(); // 預設不顯示，由圖層控制開啟
   layerGroups.hospital=L.layerGroup();
   layerGroups.manual  =L.layerGroup().addTo(map);
   layerGroups.meeting1=L.layerGroup();
@@ -616,7 +614,7 @@ function initMap(){
     showMapCtxMenu(e.containerPoint,e.latlng,null);
   });
   document.addEventListener('click',hideMapCtxMenu);
-  drawEPZ();drawRoutes(null,null);drawHospitals();drawNuclearPlants();
+  drawEPZ();drawHospitals();drawNuclearPlants();
   var mapEl=document.getElementById('map');
   mapEl.addEventListener('mousemove',function(e){
     var rect=mapEl.getBoundingClientRect();
@@ -637,34 +635,6 @@ function drawEPZ(){
   L.marker([currentPlant.lat,currentPlant.lng],{icon:icon}).addTo(layerGroups.epz).bindPopup('<div class="popup-title">☢ '+currentPlant.name+'</div>');
 }
 
-function drawRoutes(n1avg, n3avg){
-  layerGroups.route.clearLayers();
-  if(currentPlant!==PLANTS.nuclear2)return;
-  var dColor='#22c55e';  // D: 台2線，無TDX資料，固定綠色
-  var fColor='#a78bfa';  // F: 石門→淡水，無TDX資料，固定紫色
-  var eColor=speedColor(n3avg)||'#00c8ff';  // E: 走國3，用N3資料
-  var gColor=speedColor(n1avg)||'#f59e0b';  // G: 走國1，用N1資料
-
-  // 路線名稱附上即時速度
-  var eLabel='路線E｜台2→台62→國3→國1'+(n3avg?' ('+n3avg+'km/h)':'');
-  var gLabel='路線G｜台62→國1→泰山'+(n1avg?' ('+n1avg+'km/h)':'');
-
-  var routes=[
-    {name:'路線D｜台2→基隆→火車站（無即時資料）',color:dColor,
-     coords:[[25.202,121.663],[25.185,121.672],[25.155,121.720],[25.128,121.762],[25.118,121.778]]},
-    {name:eLabel,color:eColor,
-     coords:[[25.202,121.663],[25.185,121.672],[25.155,121.720],[25.088,121.730],[25.030,121.630]]},
-    {name:'路線F｜台2→石門→淡水（無即時資料）',color:fColor,
-     coords:[[25.202,121.663],[25.210,121.650],[25.240,121.610],[25.275,121.555],[25.300,121.500]]},
-    {name:gLabel,color:gColor,
-     coords:[[25.202,121.663],[25.185,121.672],[25.155,121.720],[25.088,121.730],[25.020,121.640]]}
-  ];
-  routes.forEach(function(r){
-    L.polyline(r.coords,{color:r.color,weight:3,opacity:0.85,dashArray:'6,4'})
-      .addTo(layerGroups.route)
-      .bindPopup('<div class="popup-title">'+r.name+'</div><div class="popup-meta">§4.4 疏散路線規劃</div>');
-  });
-}
 
 // 從 Sheet 讀入的醫院資料（全域，AI 路線查詢也用）
 var hospitalData = [];
@@ -917,7 +887,6 @@ async function fetchTDXTraffic(){
     var n1avg = n1speeds.length ? Math.round(n1speeds.reduce(function(a,b){return a+b;},0)/n1speeds.length) : null;
     var n3avg = n3speeds.length ? Math.round(n3speeds.reduce(function(a,b){return a+b;},0)/n3speeds.length) : null;
     console.log('TDX 路況更新成功：N1',n1avg,'N3',n3avg,'即時筆數',live.length,'路段對照',Object.keys(sectionMap).length);
-    drawRoutes(n1avg, n3avg);
     updateTrafficCard(n1avg, n3avg);
   }catch(e){
     tdxTrafficSummary='';
@@ -1936,7 +1905,7 @@ async function runSimulate(){
   var disasters=[document.getElementById('simEQ').checked&&'地震',document.getElementById('simTY').checked&&'颱風',document.getElementById('simFlood').checked&&'水災',document.getElementById('simFire').checked&&'火災'].filter(Boolean);
   currentPlant=plant;simMode=true;
   map.setView([plant.lat,plant.lng],plant.zoom);
-  drawEPZ();drawRoutes();drawHospitals();
+  drawEPZ();drawHospitals();
   // 切換至對應電廠知識庫
   fetchKnowledge(getPlantKey(plant));
   stations=stations.map(function(s,i){return Object.assign({},s,{value:i===0?value:parseFloat((value*0.3*Math.random()).toFixed(3))});});
