@@ -1923,14 +1923,20 @@ function lenientJSONParse(str) {
   try { return Function('"use strict";return (' + fixed + ')')(); } catch(e) { return null; }
 }
 
-// 驗證 AI 畫圖座標：平行 Nominatim geocode，失敗用本地表
+// 驗證 AI 畫圖座標：Sheet/本地表優先，找不到才用 Nominatim
 async function validateAIDrawItems(items) {
-  // 所有 marker 同時送出 Nominatim 請求（平行，不等 rate limit）
-  var geoPromises = items.map(function(item) {
-    if (item.type === 'marker' && item.label) {
-        var region = currentPlant.name ? currentPlant.name.replace('（','').replace('）','').replace('廠','').substring(2) : '新北市';
-        return geocodePlace(item.label, region);
-      }
+  // 第一步：先用 Sheet 資料查（findPlaceCoords 涵蓋 Sheet + 本地表）
+  var localResults = items.map(function(item) {
+    if (item.type === 'marker' && item.label) return findPlaceCoords(item.label);
+    return null;
+  });
+
+  // 第二步：只有 Sheet 找不到的 marker 才打 Nominatim
+  var geoPromises = items.map(function(item, i) {
+    if (item.type === 'marker' && item.label && !localResults[i]) {
+      var region = currentPlant.name ? currentPlant.name.replace('（','').replace('）','').replace('廠','').substring(2) : '新北市';
+      return geocodePlace(item.label, region);
+    }
     return Promise.resolve(null);
   });
   var geoResults = await Promise.all(geoPromises);
@@ -1938,20 +1944,25 @@ async function validateAIDrawItems(items) {
   var results = [];
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
+    var local = localResults[i];
     var geo = geoResults[i];
 
     if (item.type === 'marker') {
-      if (geo) {
+      if (local) {
+        // Sheet / 本地表命中，直接採用（最可靠）
+        item = Object.assign({}, item, { lat: local.lat, lng: local.lng });
+        console.log('Sheet/本地表定位:', item.label, local.lat, local.lng);
+      } else if (geo) {
         var geoDist = haversine(geo.lat, geo.lng, currentPlant.lat, currentPlant.lng);
         if (geoDist <= 80) {
           item = Object.assign({}, item, { lat: geo.lat, lng: geo.lng });
           console.log('Nominatim 定位:', item.label, geo.lat, geo.lng);
         } else {
-          item = fixMarkerCoords(item); // Nominatim 找到但太遠，用本地表
+          item = fixMarkerCoords(item); // Nominatim 找到但太遠，用 AI_EPZ_COORDS
         }
       } else {
-        item = fixMarkerCoords(item); // Nominatim 查無，用本地表
-        console.warn('Nominatim 查無，本地表 fallback:', item.label);
+        item = fixMarkerCoords(item); // Nominatim 查無，用 AI_EPZ_COORDS
+        console.warn('Nominatim 查無，AI_EPZ_COORDS fallback:', item.label);
       }
     }
 
