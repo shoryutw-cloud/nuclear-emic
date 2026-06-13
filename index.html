@@ -333,7 +333,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
         <div class="layer-toggle on" id="lt-epz"      onclick="toggleLayerPanel('epz','lt-epz')">☢ EPZ 範圍圈</div>
         <div class="layer-toggle on" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">📡 輻射測站</div>
         <div class="layer-toggle on" id="lt-route"    onclick="toggleLayerPanel('route','lt-route')">🛣 疏散路線</div>
-        <div class="layer-toggle on" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">🏥 輻傷醫院</div>
+        <div class="layer-toggle" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">🏥 輻傷醫院</div>
         <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb">🗺 清除 AI 規劃路線</div>
       </div>
       <div class="sec-label" style="margin-top:12px">AI 繪圖</div>
@@ -602,7 +602,7 @@ function initMap(){
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
   layerGroups.station =L.layerGroup().addTo(map);
   layerGroups.route   =L.layerGroup().addTo(map);
-  layerGroups.hospital=L.layerGroup().addTo(map);
+  layerGroups.hospital=L.layerGroup();
   layerGroups.manual  =L.layerGroup().addTo(map);
   layerGroups.meeting1=L.layerGroup();
   layerGroups.shield1 =L.layerGroup();
@@ -616,7 +616,7 @@ function initMap(){
     showMapCtxMenu(e.containerPoint,e.latlng,null);
   });
   document.addEventListener('click',hideMapCtxMenu);
-  drawEPZ();drawRoutes(null,null);drawHospitals();drawStations(DEFAULT_STATIONS);
+  drawEPZ();drawRoutes(null,null);drawHospitals();drawStations(DEFAULT_STATIONS);drawNuclearPlants();
   var mapEl=document.getElementById('map');
   mapEl.addEventListener('mousemove',function(e){
     var rect=mapEl.getBoundingClientRect();
@@ -677,9 +677,18 @@ function drawHospitals(){
     {name:'林口長庚',level:'三級',lat:25.076,lng:121.350,color:'#dc2626'},
     {name:'台北榮總',level:'三級',lat:25.113,lng:121.515,color:'#dc2626'}
   ];
+  var hIcon=L.icon({iconUrl:'hospital.png',iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16]});
   hospitals.forEach(function(h){
-    var icon=L.divIcon({html:'<div style="background:'+h.color+';color:#fff;font-size:10px;padding:2px 5px;border-radius:3px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.3)">🏥'+h.level.charAt(0)+'</div>',className:'',iconAnchor:[0,0]});
-    L.marker([h.lat,h.lng],{icon:icon}).addTo(layerGroups.hospital).bindPopup('<div class="popup-title">'+h.name+'</div><div class="popup-meta">'+h.level+'輻傷醫療 表4-4</div>');
+    L.marker([h.lat,h.lng],{icon:hIcon}).addTo(layerGroups.hospital).bindPopup('<div class="popup-title">'+h.name+'</div><div class="popup-meta">'+h.level+'輻傷醫療 表4-4</div>');
+  });
+}
+
+function drawNuclearPlants(){
+  var npIcon=L.icon({iconUrl:'nuclearplant.png',iconSize:[36,36],iconAnchor:[18,18],popupAnchor:[0,-18]});
+  Object.values(PLANTS).forEach(function(p){
+    L.marker([p.lat,p.lng],{icon:npIcon,zIndexOffset:1000})
+      .bindPopup('<div class="popup-title">'+p.name+'</div>')
+      .addTo(map);
   });
 }
 
@@ -2227,13 +2236,19 @@ function drawAIShapes(items) {
     try {
       var color = item.color || '#1a56db';
       if (item.type === 'marker') {
+        var mlat = item.lat, mlng = item.lng;
+        if (!(mlat && mlng)) {
+          var lookup = findPlaceCoords(item.name || item.label || '');
+          if (lookup) { mlat = lookup.lat; mlng = lookup.lng; }
+        }
+        if (!mlat || !mlng) return;
         var icon = L.divIcon({
           className: '',
           html: '<div style="background:'+color+';width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>',
           iconSize: [14,14], iconAnchor: [7,7]
         });
-        L.marker([item.lat, item.lng], {icon:icon})
-          .bindTooltip(item.label||'', {permanent:true, direction:'right', className:'ai-draw-tooltip'})
+        L.marker([mlat, mlng], {icon:icon})
+          .bindTooltip(item.label||item.name||'', {permanent:true, direction:'right', className:'ai-draw-tooltip'})
           .addTo(layerGroups.aiDraw);
       } else if (item.type === 'circle') {
         L.circle([item.lat, item.lng], {
