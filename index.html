@@ -238,6 +238,8 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
   <!-- 右鍵選單 -->
   <div id="mapCtxMenu" class="map-ctx-menu">
+    <div class="ctx-item" id="ctxSetOrigin" onclick="doSetRouteOrigin()">📍 設為起點</div>
+    <div class="ctx-item" id="ctxSetDest"   onclick="doSetRouteDest()">🏁 設為終點</div>
     <div class="ctx-item"  id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
     <div class="ctx-item danger" id="ctxDelBlock" onclick="doDeleteRoadblock()">🗑 刪除路障</div>
   </div>
@@ -332,7 +334,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       <div class="layer-grid">
         <div class="layer-toggle on" id="lt-epz"      onclick="toggleLayerPanel('epz','lt-epz')">☢ EPZ 範圍圈</div>
         <div class="layer-toggle on" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">📡 輻射測站</div>
-        <div class="layer-toggle on" id="lt-route"    onclick="toggleLayerPanel('route','lt-route')">🛣 疏散路線</div>
+        <div class="layer-toggle" id="lt-route"    onclick="toggleLayerPanel('route','lt-route')">🛣 疏散路線</div>
         <div class="layer-toggle" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">🏥 輻傷醫院</div>
         <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb">🗺 清除 AI 規劃路線</div>
       </div>
@@ -599,7 +601,7 @@ function initMap(){
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
   layerGroups.station =L.layerGroup().addTo(map);
-  layerGroups.route   =L.layerGroup().addTo(map);
+  layerGroups.route   =L.layerGroup(); // 預設不顯示，由圖層控制開啟
   layerGroups.hospital=L.layerGroup();
   layerGroups.manual  =L.layerGroup().addTo(map);
   layerGroups.meeting1=L.layerGroup();
@@ -2349,6 +2351,8 @@ function showMapCtxMenu(containerPt, latlng, existingData){
   var rect=mapEl.getBoundingClientRect();
   menu.style.left=(rect.left+containerPt.x+2)+'px';
   menu.style.top =(rect.top +containerPt.y+2)+'px';
+  document.getElementById('ctxSetOrigin').style.display=existingData?'none':'block';
+  document.getElementById('ctxSetDest').style.display=existingData?'none':'block';
   document.getElementById('ctxAddBlock').style.display=existingData?'none':'block';
   document.getElementById('ctxDelBlock').style.display=existingData?'block':'none';
   _ctxLatLng=latlng;
@@ -2377,6 +2381,51 @@ function showRoadblockToast(msg, ok){
   t.style.display='block';
   clearTimeout(t._rbTimer);
   t._rbTimer=setTimeout(function(){t.style.display='none';},3000);
+}
+
+// ── 手動起點 / 終點路線規劃 ─────────────────────────────────────
+var _manualOrigin = null; // {lat, lng}
+var _manualDest   = null;
+
+var _originMarker = null;
+var _destMarker   = null;
+
+function _makeRouteIcon(label, bg) {
+  return L.divIcon({
+    html: '<div style="background:'+bg+';color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,.4)">'+label+'</div>',
+    iconSize:[28,28], iconAnchor:[14,14], className:''
+  });
+}
+
+function doSetRouteOrigin(){
+  hideMapCtxMenu();
+  if(!_ctxLatLng) return;
+  _manualOrigin = {lat:_ctxLatLng.lat, lng:_ctxLatLng.lng};
+  // 移除舊起點標記
+  if(_originMarker){ layerGroups.aiRoute.removeLayer(_originMarker); _originMarker=null; }
+  _originMarker = L.marker([_manualOrigin.lat, _manualOrigin.lng], {icon:_makeRouteIcon('S','#22c55e')})
+    .bindPopup('<b>起點</b>').addTo(layerGroups.aiRoute);
+  _tryManualRoute();
+}
+
+function doSetRouteDest(){
+  hideMapCtxMenu();
+  if(!_ctxLatLng) return;
+  _manualDest = {lat:_ctxLatLng.lat, lng:_ctxLatLng.lng};
+  if(_destMarker){ layerGroups.aiRoute.removeLayer(_destMarker); _destMarker=null; }
+  _destMarker = L.marker([_manualDest.lat, _manualDest.lng], {icon:_makeRouteIcon('E','#dc2626')})
+    .bindPopup('<b>終點</b>').addTo(layerGroups.aiRoute);
+  _tryManualRoute();
+}
+
+function _tryManualRoute(){
+  if(!_manualOrigin || !_manualDest) return;
+  var oLat=_manualOrigin.lat, oLng=_manualOrigin.lng;
+  var dLat=_manualDest.lat,   dLng=_manualDest.lng;
+  _originMarker=null; _destMarker=null; // drawAIRoute 會重繪 S/E marker
+  var oName=oLat.toFixed(5)+', '+oLng.toFixed(5);
+  var dName=dLat.toFixed(5)+', '+dLng.toFixed(5);
+  drawAIRoute(oLat, oLng, dLat, dLng, oName, dName, '#6d28d9');
 }
 
 function doAddRoadblock(){
