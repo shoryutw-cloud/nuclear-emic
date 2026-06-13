@@ -535,6 +535,16 @@ function buildEvacPlacesContext() {
   return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取）】\n' + parts.join('\n');
 }
 
+function buildRoadblockContext() {
+  if (!activeRoadblocks.length) return '';
+  var lines = activeRoadblocks.map(function(blk) {
+    var pos = '(' + blk.lat.toFixed(5) + ', ' + blk.lng.toFixed(5) + ')';
+    return '  - ' + (blk.roadName ? blk.roadName + ' ' + pos : '位置 ' + pos);
+  });
+  return '\n\n【目前路障（路線規劃必須繞開）】\n' + lines.join('\n') +
+    '\n路線規劃時若路障在主幹道上，請在 route 的 waypoints 填入繞道地名，強制走側路或替代道路。';
+}
+
 function getKnowledge() {
   // 優先用當前電廠的知識庫快取
   var plantKey = getPlantKey(currentPlant);
@@ -1016,8 +1026,16 @@ async function processRouteItems(routeItems) {
       if (nh) dest = { lat: nh.lat, lng: nh.lng, name: nh.name };
     }
     if (!dest) dest = await findOrGeocodePlace(dStr);
-    console.log('AI路線:', ri.origin, '→', orig.name, '|', ri.destination, '→', dest && dest.name);
-    if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name || ri.origin, dest.name || ri.destination, ri.color || '#e85d04');
+    // 解析 AI 指定的中間繞道點
+    var resolvedWaypoints = [];
+    if (ri.waypoints && ri.waypoints.length) {
+      for (var w = 0; w < ri.waypoints.length; w++) {
+        var wp = await findOrGeocodePlace(ri.waypoints[w]);
+        if (wp) resolvedWaypoints.push(wp);
+      }
+    }
+    console.log('AI路線:', ri.origin, '→', orig.name, '|', ri.destination, '→', dest && dest.name, '| 繞道點:', resolvedWaypoints.length);
+    if (dest) drawAIRoute(orig.lat, orig.lng, dest.lat, dest.lng, orig.name || ri.origin, dest.name || ri.destination, ri.color || '#e85d04', resolvedWaypoints);
   }
 }
 
@@ -1185,10 +1203,11 @@ async function sendQA() {
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
   var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
+  var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    hospitalCtx+evacCtx+
+    hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
@@ -1380,9 +1399,10 @@ function computeBypassPoints(blk, routeCoords, offsetM) {
   ];
 }
 
-// 畫 OSRM 路線到地圖
-async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, color) {
+// 畫 OSRM 路線到地圖（waypoints: AI 指定的中間繞道點陣列 [{lat,lng}]，有值時跳過程式繞道邏輯）
+async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, color, waypoints) {
   color = color || '#e85d04';
+  waypoints = waypoints || [];
   layerGroups.aiRoute.clearLayers();
 
   // 起終點標記
@@ -1407,17 +1427,35 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
   };
 
   try {
-    // 請求含備選路線（最多 3 條）以便避開路障
+    // AI 有指定繞道點時直接用多點路由，否則請求 3 條備選再自動繞道
+    var coordParts = [fromLng.toFixed(6)+','+fromLat.toFixed(6)];
+    waypoints.forEach(function(w){ coordParts.push(w.lng.toFixed(6)+','+w.lat.toFixed(6)); });
+    coordParts.push(toLng.toFixed(6)+','+toLat.toFixed(6));
     var url = 'https://router.project-osrm.org/route/v1/driving/' +
-      fromLng.toFixed(6)+','+fromLat.toFixed(6)+';'+
-      toLng.toFixed(6)+','+toLat.toFixed(6)+
-      '?overview=full&geometries=geojson&alternatives=3&steps=true';
+      coordParts.join(';') +
+      '?overview=full&geometries=geojson&steps=true' +
+      (waypoints.length ? '' : '&alternatives=3');
     var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error('OSRM HTTP ' + res.status);
     var d = await res.json();
 
     if (!d.routes || !d.routes[0] || !d.routes[0].geometry || !d.routes[0].geometry.coordinates.length) {
       throw new Error('無有效路線座標');
+    }
+
+    // AI 已指定繞道點時直接用第一條路線，不再執行程式繞道邏輯
+    if (waypoints.length) {
+      var aiCoords = d.routes[0].geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
+      var aiRoute = d.routes[0];
+      var aiDist = (aiRoute.distance / 1000).toFixed(1);
+      var aiMins = Math.round(aiRoute.duration / 60);
+      L.polyline(aiCoords, { color:'#fff', weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
+      L.polyline(aiCoords, { color:color,  weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
+      L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
+        .bindPopup('<div style="font-size:14px"><b>🟢 起點</b><br>'+fromName+'</div>');
+      L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
+        .bindPopup('<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+aiDist+' km｜約'+aiMins+'分鐘</div>');
+      return { distKm: aiDist, mins: aiMins, fromName: fromName, toName: toName };
     }
 
     // 從備選路線中選第一條沒路障的
@@ -1573,10 +1611,11 @@ async function sendQA() {
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
   var evacCtx = /集結|防護站|收容所|疏散|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
+  var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
-    hospitalCtx+evacCtx+
+    hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
     '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
@@ -2079,10 +2118,11 @@ var AI_DRAW_RULE = [
   '  marker:{"type":"marker","lat":數字,"lng":數字,"label":"文字","color":"#色"}',
   '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
   '  boundary:{"type":"boundary","name":"里/區/市名稱（如安樂里、萬里區）","color":"#色","fillOpacity":0.18} ← 系統自動查詢真實行政邊界，禁止自己猜多邊形座標',
-  '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","color":"#e85d04"}',
+  '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","waypoints":[],"color":"#e85d04"} ← waypoints 填繞道地名，可空陣列',
   '  ★ 凡涉及路線/怎麼走/疏散路徑，draw 必須含 route。凡涉及村里/區域範圍，draw 必須用 boundary 而非 polygon。',
   '  ★ route 的 origin/destination 必須【一字不差】使用上方「疏散地點清單」中的完整名稱（如「中幅市民活動中心」），不可自行改寫或簡化。',
   '  ★ 若使用者要去「最近的防護站/醫院」但未指定哪一個，destination 直接填「最近防護站」或「最近醫院」，系統會自動算最近的。',
+  '  ★ 若【目前路障】區塊存在，路線規劃必須繞開路障，在 waypoints 填入具體繞道地名（如「萬里區公所」「基福公路口」），不可空著。',
   '  顏色：危險#dc2626 警戒#f97316 量測點#1a56db 疏散#16a34a 掩蔽#8b5cf6 路線#e85d04',
   '  座標只能用電廠、已知測站或村里的實際座標，禁止假設或虛構數值。',
   '  下風向偏移：風向W度（正北0順時針），距D公尺，下風向=(W+180)%360',
