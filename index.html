@@ -1094,37 +1094,49 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
   };
 
   try {
+    // 請求含備選路線（最多 3 條）以便避開路障
     var url = 'https://router.project-osrm.org/route/v1/driving/' +
       fromLng.toFixed(6)+','+fromLat.toFixed(6)+';'+
       toLng.toFixed(6)+','+toLat.toFixed(6)+
-      '?overview=full&geometries=geojson';
-    console.log('OSRM 請求:', url);
+      '?overview=full&geometries=geojson&alternatives=3';
     var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error('OSRM HTTP ' + res.status);
     var d = await res.json();
-    console.log('OSRM 回傳狀態:', d.code, '路線數:', d.routes ? d.routes.length : 0);
 
     if (!d.routes || !d.routes[0] || !d.routes[0].geometry || !d.routes[0].geometry.coordinates.length) {
       throw new Error('無有效路線座標');
     }
 
-    var route  = d.routes[0];
-    var coords = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+    // 從備選路線中選第一條沒路障的
+    var chosenRoute = null, blockedWarning = null;
+    for (var ri = 0; ri < d.routes.length; ri++) {
+      var candidate = d.routes[ri];
+      var cCoords = candidate.geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
+      if (!checkRouteBlocked(cCoords)) { chosenRoute = { route: candidate, coords: cCoords }; break; }
+    }
+    if (!chosenRoute) {
+      var r0 = d.routes[0];
+      chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
+      blockedWarning = '⚠️ 偵測到路障，所有備選路線均受影響，建議現場確認';
+    }
+
+    var route  = chosenRoute.route;
+    var coords = chosenRoute.coords;
     var distKm = (route.distance / 1000).toFixed(1);
     var mins   = Math.round(route.duration / 60);
-    console.log('OSRM 成功：', distKm, 'km', mins, '分鐘，座標點數:', coords.length);
 
-    // 畫路線（白邊＋主線，夠粗夠顯眼）
-    L.polyline(coords, { color:'#fff',   weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
-    L.polyline(coords, { color:color,    weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
+    L.polyline(coords, { color:'#fff', weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
+    L.polyline(coords, { color:color,  weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
+
+    var endPopup = '<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km｜約'+mins+'分鐘'+
+      (blockedWarning ? '<br><span style="color:#dc2626;font-size:12px">'+blockedWarning+'</span>' : '')+'</div>';
 
     L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
       .bindPopup('<div style="font-size:14px"><b>🟢 起點</b><br>'+fromName+'</div>');
     L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup('<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km｜約'+mins+'分鐘</div>').openPopup();
+      .bindPopup(endPopup).openPopup();
 
-    // 不自動縮放，保持使用者目前視角
-    return { distKm: distKm, mins: mins, fromName: fromName, toName: toName };
+    return { distKm: distKm, mins: mins, fromName: fromName, toName: toName, blockedWarning: blockedWarning };
 
   } catch(e) {
     console.warn('OSRM 失敗，改畫直線備援:', e.message);
@@ -1494,37 +1506,49 @@ async function drawAIRoute(fromLat, fromLng, toLat, toLng, fromName, toName, col
   };
 
   try {
+    // 請求含備選路線（最多 3 條）以便避開路障
     var url = 'https://router.project-osrm.org/route/v1/driving/' +
       fromLng.toFixed(6)+','+fromLat.toFixed(6)+';'+
       toLng.toFixed(6)+','+toLat.toFixed(6)+
-      '?overview=full&geometries=geojson';
-    console.log('OSRM 請求:', url);
+      '?overview=full&geometries=geojson&alternatives=3';
     var res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error('OSRM HTTP ' + res.status);
     var d = await res.json();
-    console.log('OSRM 回傳狀態:', d.code, '路線數:', d.routes ? d.routes.length : 0);
 
     if (!d.routes || !d.routes[0] || !d.routes[0].geometry || !d.routes[0].geometry.coordinates.length) {
       throw new Error('無有效路線座標');
     }
 
-    var route  = d.routes[0];
-    var coords = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+    // 從備選路線中選第一條沒路障的
+    var chosenRoute = null, blockedWarning = null;
+    for (var ri = 0; ri < d.routes.length; ri++) {
+      var candidate = d.routes[ri];
+      var cCoords = candidate.geometry.coordinates.map(function(c){ return [c[1],c[0]]; });
+      if (!checkRouteBlocked(cCoords)) { chosenRoute = { route: candidate, coords: cCoords }; break; }
+    }
+    if (!chosenRoute) {
+      var r0 = d.routes[0];
+      chosenRoute = { route: r0, coords: r0.geometry.coordinates.map(function(c){ return [c[1],c[0]]; }) };
+      blockedWarning = '⚠️ 偵測到路障，所有備選路線均受影響，建議現場確認';
+    }
+
+    var route  = chosenRoute.route;
+    var coords = chosenRoute.coords;
     var distKm = (route.distance / 1000).toFixed(1);
     var mins   = Math.round(route.duration / 60);
-    console.log('OSRM 成功：', distKm, 'km', mins, '分鐘，座標點數:', coords.length);
 
-    // 畫路線（白邊＋主線，夠粗夠顯眼）
-    L.polyline(coords, { color:'#fff',   weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
-    L.polyline(coords, { color:color,    weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
+    L.polyline(coords, { color:'#fff', weight:9, opacity:0.8 }).addTo(layerGroups.aiRoute);
+    L.polyline(coords, { color:color,  weight:6, opacity:1.0 }).addTo(layerGroups.aiRoute);
+
+    var endPopup = '<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km｜約'+mins+'分鐘'+
+      (blockedWarning ? '<br><span style="color:#dc2626;font-size:12px">'+blockedWarning+'</span>' : '')+'</div>';
 
     L.marker([fromLat,fromLng], {icon:startIcon}).addTo(layerGroups.aiRoute)
       .bindPopup('<div style="font-size:14px"><b>🟢 起點</b><br>'+fromName+'</div>');
     L.marker([toLat,toLng], {icon:endIcon}).addTo(layerGroups.aiRoute)
-      .bindPopup('<div style="font-size:14px"><b>🔴 終點</b><br>'+toName+'<br>'+distKm+' km｜約'+mins+'分鐘</div>').openPopup();
+      .bindPopup(endPopup).openPopup();
 
-    // 不自動縮放，保持使用者目前視角
-    return { distKm: distKm, mins: mins, fromName: fromName, toName: toName };
+    return { distKm: distKm, mins: mins, fromName: fromName, toName: toName, blockedWarning: blockedWarning };
 
   } catch(e) {
     console.warn('OSRM 失敗，改畫直線備援:', e.message);
@@ -2384,6 +2408,8 @@ function doDeleteRoadblock(){
   .catch(function(e){showRoadblockToast('✗ 連線失敗：'+e.message,false);});
 }
 
+var activeRoadblocks=[]; // 尚未刪除的路障，供路線查詢避開用
+
 async function loadRoadblocks(){
   var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
   var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('路障');
@@ -2392,13 +2418,34 @@ async function loadRoadblocks(){
     if(!resp.ok) return;
     var text=await resp.text();
     var rows=parseFullCSV(text);
+    activeRoadblocks=[];
     for(var i=1;i<rows.length;i++){
       var r=rows[i];
       if(!r||r.length<3) continue;
       var id=r[0].trim(), lat=parseFloat(r[1]), lng=parseFloat(r[2]);
-      if(id&&!isNaN(lat)&&!isNaN(lng)) addRoadblockMarker(id,lat,lng);
+      var deletedAt=(r[4]||'').trim();
+      if(id&&!isNaN(lat)&&!isNaN(lng)){
+        addRoadblockMarker(id,lat,lng);
+        if(!deletedAt) activeRoadblocks.push({id:id,lat:lat,lng:lng});
+      }
     }
+    console.log('路障載入，活躍數量:',activeRoadblocks.length);
   }catch(e){}
+}
+
+// 檢查路線座標是否經過任何活躍路障（100公尺內視為同一條路）
+function checkRouteBlocked(routeCoords){
+  if(!activeRoadblocks.length) return null;
+  var THRESHOLD=0.1; // 100公尺 = 0.1 km
+  for(var i=0;i<routeCoords.length;i++){
+    var pt=routeCoords[i];
+    for(var j=0;j<activeRoadblocks.length;j++){
+      var blk=activeRoadblocks[j];
+      if(haversine(pt[0],pt[1],blk.lat,blk.lng)<THRESHOLD)
+        return blk; // 回傳第一個命中的路障
+    }
+  }
+  return null;
 }
 
 // ── 避難疏散圖層 ─────────────────────────────────────────────────
