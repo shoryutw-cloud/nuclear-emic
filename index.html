@@ -532,7 +532,10 @@ function buildEvacPlacesContext() {
   if (evacSheetData.shelters.length)
     parts.push('收容所：' + evacSheetData.shelters.map(function(s){ return s.name; }).join('、'));
   if (!parts.length) return '';
-  return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取）】\n' + parts.join('\n');
+  var body = parts.join('\n');
+  // 避免 prompt 超過 Groq token 限制，截斷超長清單
+  if (body.length > 2000) body = body.substring(0, 2000) + '…（清單過長已截斷）';
+  return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取）】\n' + body;
 }
 
 function buildRoadblockContext() {
