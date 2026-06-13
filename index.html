@@ -2526,14 +2526,11 @@ async function loadRoadblocks(){
       var id=r[0].trim(), lat=parseFloat(r[1]), lng=parseFloat(r[2]);
       var deletedAt=(r[4]||'').trim();
       var roadName=(r[5]||'').trim();
-      if(id&&!isNaN(lat)&&!isNaN(lng)){
+      if(id&&!isNaN(lat)&&!isNaN(lng)&&!deletedAt){
         addRoadblockMarker(id,lat,lng);
-        if(!deletedAt){
-          var blk={id:id,lat:lat,lng:lng,roadName:roadName};
-          activeRoadblocks.push(blk);
-          // 若 Sheet 沒有路名，非同步查 OSRM /nearest 並回寫
-          if(!roadName) fetchRoadName(blk);
-        }
+        var blk={id:id,lat:lat,lng:lng,roadName:roadName};
+        activeRoadblocks.push(blk);
+        if(!roadName) fetchRoadName(blk);
       }
     }
     console.log('路障載入，活躍數量:',activeRoadblocks.length);
