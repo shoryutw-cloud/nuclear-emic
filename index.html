@@ -490,7 +490,7 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
       generationConfig: {maxOutputTokens: maxTokens, temperature: temperature}
     };
     if (sysText.trim()) body.systemInstruction = {parts:[{text:sysText.trim()}]};
-    var gr = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key='+key, {
+    var gr = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key, {
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
     });
     var gd = await gr.json();
@@ -1575,8 +1575,8 @@ async function sendQA() {
   messages.push({ role:'user', content:q });
 
   try {
-    // 使用小模型 llama-3.1-8b-instant 節省 token
-    var answer = await callAI(messages,1500,0.3,true);
+    // 問答用 70B 大模型（品質優先；8B 太笨會答錯、畫錯點）
+    var answer = await callAI(messages,1500,0.3,false);
 
     // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
     var displayText = answer;
