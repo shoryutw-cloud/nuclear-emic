@@ -397,7 +397,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
         <div class="layer-toggle on" id="lt-epz"      onclick="toggleLayerPanel('epz','lt-epz')">EPZ 範圍圈</div>
         <div class="layer-toggle on" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">輻射測站</div>
         <div class="layer-toggle" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">輻傷醫院</div>
-        <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb">清除 AI 規劃路線</div>
+        <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb" title="路線由 OSRM 路網引擎計算；AI 僅決定起終點與繞道建議">清除規劃路線</div>
       </div>
       <div class="sec-label" style="margin-top:12px">AI 繪圖</div>
       <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -898,7 +898,7 @@ function initMap(){
   baseLayers.nlsc.addTo(map);  // 預設：國土測繪通用版電子地圖（OSM 等保留為備援可切換）
   layerGroups.epz     =L.layerGroup().addTo(map);
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
-  layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
+  layerGroups.aiRoute  =L.layerGroup().addTo(map); // 路線圖層（OSRM 計算；AI/手動/批次皆畫於此）
   layerGroups.station =L.layerGroup(); // 測站圖層預設關閉，點「測站」按鈕才讀取顯示
   layerGroups.hospital=L.layerGroup();
   layerGroups.manual  =L.layerGroup().addTo(map);
