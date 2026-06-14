@@ -206,7 +206,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     <button class="tool-btn" id="btnLayerHospital" onclick="toggleTool('hospital',this)" title="醫院">醫院</button>
     <button class="tool-btn" id="btnEvacPanel" onclick="toggleEvacPanel()" title="避難疏散點">疏散</button>
     <div class="tool-divider"></div>
-    <button class="tool-btn" onclick="refreshData()" style="font-size:16px" title="更新">↻</button>
+    <button class="tool-btn" id="btnTraffic" onclick="toggleTraffic(this)" title="即時路況（點擊顯示／隱藏）">路況</button>
   </div>
 
   <!-- 避難疏散圖層面板 -->
@@ -999,6 +999,24 @@ function updateTrafficCard(n1, n3){
       '<span style="font-size:12px;color:#fff;flex:1">國道1號</span>'+
       '<span style="font-family:var(--mono);font-size:12px;color:'+(c1||'#888')+'">'+speedLabel(n1)+'</span>'+
     '</div>';
+}
+
+// 路況按鈕：開啟才顯示卡片並抓 TDX 即時資料，再按一次隱藏
+var trafficOn = false;
+async function toggleTraffic(btn){
+  trafficOn = !trafficOn;
+  var card = document.getElementById('trafficCard');
+  if(!card) return;
+  if(trafficOn){
+    if(btn) btn.classList.add('active');
+    card.style.display = 'block';
+    card.innerHTML = '<div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.6);letter-spacing:1px;margin-bottom:5px">即時路況 — 國道1/3號</div>'+
+      '<div style="font-size:12px;color:rgba(255,255,255,0.6)">⟳ 載入中…</div>';
+    await fetchTDXTraffic();   // 真的抓資料（成功會由 updateTrafficCard 覆寫卡片內容）
+  } else {
+    if(btn) btn.classList.remove('active');
+    card.style.display = 'none';
+  }
 }
 
 // ── API Key 提醒 ──────────────────────────────────────────────
@@ -2722,6 +2740,7 @@ window.addEventListener('load',function(){
 
 <!-- 路況卡片 -->
 <div id="trafficCard" style="
+  display:none;
   position:absolute; bottom:40px; left:70px; z-index:1000;
   background:rgba(18,36,58,0.88); backdrop-filter:blur(4px);
   border:1px solid rgba(93,212,200,0.2); border-radius:8px;
@@ -2729,9 +2748,7 @@ window.addEventListener('load',function(){
   box-shadow:0 4px 12px rgba(0,0,0,0.3);
 ">
   <div style="font-family:var(--mono);font-size:12px;color:rgba(255,255,255,0.5);letter-spacing:1px;margin-bottom:5px">即時路況 — 國道1/3號</div>
-  <div style="font-size:12px;color:rgba(255,255,255,0.6);display:flex;align-items:center;gap:6px">
-    <span>⟳</span> 按左側 ↻ 更新路況
-  </div>
+  <div style="font-size:12px;color:rgba(255,255,255,0.6)">載入中…</div>
 </div>
 
 <script>// ── 浮動鳥 AI 助手 ─────────────────────────────────────────────
