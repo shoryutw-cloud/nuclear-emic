@@ -298,6 +298,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   </div>
   <!-- 集結點/防護站/收容所 marker 右鍵選單：停用 -->
   <div id="evacCtxMenu" class="map-ctx-menu">
+    <div class="ctx-item" id="ctxToggleActive" onclick="doToggleActive()">✅ 啟動此地點</div>
     <div class="ctx-item danger" onclick="doDisablePlace()">🚫 停用此地點</div>
   </div>
   <!-- 里別警示圖例 -->
@@ -2816,6 +2817,21 @@ function getEvacIcons(){
   };
   return EVAC_ICONS;
 }
+var EVAC_IMG={meeting:'Meetingpoint.png',shield:'shield.png',shelter:'shelter.png'};
+// 集結點/防護站/收容所圖示 + 右上角啟動角標（✓綠=已啟動、✕灰=未啟動，預設未啟動）
+function makeEvacDivIcon(type, active){
+  var img=EVAC_IMG[type]||EVAC_IMG.meeting;
+  var bg=active?'#16a34a':'#9ca3af', mark=active?'✓':'✕';
+  return L.divIcon({
+    className:'',
+    html:'<div style="position:relative;width:28px;height:28px">'+
+      '<img src="'+img+'" style="width:28px;height:28px;display:block" alt="">'+
+      '<span style="position:absolute;top:-5px;right:-5px;width:15px;height:15px;border-radius:50%;background:'+bg+
+      ';color:#fff;font-size:11px;line-height:15px;text-align:center;border:1.5px solid #fff;font-family:var(--sans);box-shadow:0 1px 3px rgba(0,0,0,.4)">'+mark+'</span>'+
+      '</div>',
+    iconSize:[28,28], iconAnchor:[14,28], popupAnchor:[0,-28]
+  });
+}
 var EVAC_TYPE_LABEL={meeting:'集結點',shield:'防護站',shelter:'避難收容所'};
 
 // 建立 evac marker（含彈窗 + 右鍵停用），加入對應圖層（不強制顯示圖層）
@@ -2828,8 +2844,8 @@ function attachEvacMarker(item,type,key){
     '<div class="popup-meta">'+typeLabel+(item.boro?' · '+item.boro:'')+'</div>';
   if(item.shieldName) pop+='<div class="popup-meta" style="color:#1d4ed8">防護站：'+item.shieldName+'</div>';
   if(item.shelterNames&&item.shelterNames.length) pop+='<div class="popup-meta" style="color:#047857">收容所：'+item.shelterNames.join('、')+'</div>';
-  pop+='<div class="popup-meta" style="color:#94a3b8;font-size:11px">右鍵可停用</div>';
-  var m=L.marker([item.lat,item.lng],{icon:getEvacIcons()[type]}).addTo(lg).bindPopup(pop);
+  pop+='<div class="popup-meta" style="color:#94a3b8;font-size:11px">右鍵可切換啟動／停用</div>';
+  var m=L.marker([item.lat,item.lng],{icon:makeEvacDivIcon(type, !!item.active)}).addTo(lg).bindPopup(pop);
   item._marker=m; item._layerKey=lk; item._evacType=type; item._evacKey=key;
   m.on('contextmenu',function(e){
     L.DomEvent.preventDefault(e.originalEvent);
@@ -2905,8 +2921,25 @@ function showEvacCtxMenu(containerPt,item){
   var menu=document.getElementById('evacCtxMenu');
   var rect=document.getElementById('map').getBoundingClientRect();
   _evacCtxItem=item;
+  var tg=document.getElementById('ctxToggleActive');
+  if(tg) tg.textContent = item.active ? '⏹ 設為未啟動' : '✅ 啟動此地點';
   document.getElementById('mapCtxMenu').classList.remove('show');
   _placeCtxMenu(menu, rect.left+containerPt.x, rect.top+containerPt.y);
+}
+// 切換啟動狀態：更新角標 + 寫入 Sheet「啟動狀態」分頁
+function doToggleActive(){
+  var item=_evacCtxItem;
+  document.getElementById('evacCtxMenu').classList.remove('show');
+  if(!item) return;
+  item.active=!item.active;
+  if(item._marker) item._marker.setIcon(makeEvacDivIcon(item._evacType, item.active));
+  fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({
+    action:'set_evac_active',type:item._evacType,name:item.name,lat:item.lat,lng:item.lng,active:item.active
+  })}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.success) showRoadblockToast((item.active?'✓ 已啟動：':'✕ 已設為未啟動：')+item.name+'（已寫入 Sheet）', item.active);
+    else showRoadblockToast('✗ Sheet 寫入失敗：'+(d&&d.error||'未知')+'（地圖已更新）', false);
+  }).catch(function(e){ showRoadblockToast('✗ 連線失敗（地圖已更新，未寫入 Sheet）', false); });
+  _evacCtxItem=null;
 }
 function doDisablePlace(){
   var item=_evacCtxItem;
@@ -3214,6 +3247,22 @@ async function loadDisabledSet(sid){
   }catch(e){ return new Set(); }
 }
 
+// 讀「啟動狀態」分頁 → { 名稱: true/false }（重載時還原啟動角標）
+async function loadActiveSet(sid){
+  try{
+    var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('啟動狀態');
+    var resp=await fetch(url); if(!resp.ok) return {};
+    var rows=parseFullCSV(await resp.text());
+    var map={};
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i]; if(!r||!r[1]||!r[1].trim()) continue;
+      var v=(r[4]||'').trim();                                  // 欄4=啟動
+      map[r[1].trim()] = (v==='啟動' || /^(true|1|是|on)$/i.test(v));
+    }
+    return map;
+  }catch(e){ return {}; }
+}
+
 async function loadEvacuationData(){
   if(evacLoaded) return;
   evacLoaded=true;
@@ -3224,6 +3273,7 @@ async function loadEvacuationData(){
     {key:'2',tab:'核能二廠'}
   ];
   var disabled=await loadDisabledSet(sid);   // 已停用地點（重載時過濾掉）
+  var activeMap=await loadActiveSet(sid);    // 啟動狀態（重載時還原角標）
   var total=0;
   for(var p=0;p<plants.length;p++){
     var pl=plants[p];
@@ -3240,6 +3290,8 @@ async function loadEvacuationData(){
       var mtgs=data.meetings.filter(notDisabled);
       var shds=data.shields.filter(notDisabled);
       var shls=data.shelters.filter(notDisabled);
+      var setActive=function(x){ x.active = !!activeMap[(x.name||'').trim()]; };
+      mtgs.forEach(setActive); shds.forEach(setActive); shls.forEach(setActive);
       var cm=drawEvacItemsDirect(mtgs,'meeting',pl.key);
       var cs=drawEvacItemsDirect(shds,'shield', pl.key);
       var cr=drawEvacItemsDirect(shls,'shelter',pl.key);

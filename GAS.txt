@@ -49,6 +49,8 @@ function doPost(e) {
       return handleDisableEvacPlace(data);
     } else if (action === 'save_sim_context') {
       return handleSaveSimContext(data);
+    } else if (action === 'set_evac_active') {
+      return handleSetEvacActive(data);
     }
 
     return ContentService.createTextOutput(
@@ -385,6 +387,33 @@ function handleSaveSimContext(data) {
     sh.setFrozenRows(1);
   }
   sh.appendRow([data.time || new Date(), data.plant || '', data.level || '', data.value || '', data.disasters || '', data.desc || '']);
+  return jsonResponse({ success: true });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 啟動狀態：集結點/防護站/收容所 是否啟動，寫入「啟動狀態」分頁（同名更新不重複）
+// ──────────────────────────────────────────────────────────────
+function handleSetEvacActive(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('啟動狀態');
+  if (!sh) {
+    sh = ss.insertSheet('啟動狀態');
+    sh.appendRow(['類型', '名稱', '緯度', '經度', '啟動', '更新時間']);
+    sh.getRange(1, 1, 1, 6).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  const typeLabel = { meeting: '集結點', shield: '防護站', shelter: '收容所' }[data.type] || data.type;
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+  const state = data.active ? '啟動' : '未啟動';
+  const vals = sh.getDataRange().getValues();
+  for (let i = vals.length - 1; i >= 1; i--) {
+    if (String(vals[i][1]) === String(data.name)) {       // 同名更新
+      sh.getRange(i + 1, 5).setValue(state);
+      sh.getRange(i + 1, 6).setValue(now);
+      return jsonResponse({ success: true });
+    }
+  }
+  sh.appendRow([typeLabel, data.name, data.lat, data.lng, state, now]);
   return jsonResponse({ success: true });
 }
 
