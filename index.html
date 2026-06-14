@@ -526,17 +526,52 @@ function buildHospitalContext() {
 }
 
 // 把 Sheet 疏散地點清單注入 prompt，讓 AI 直接選用正確名稱
-function buildEvacPlacesContext() {
+function buildEvacPlacesContext(q) {
+  q = q || '';
+  var M = evacSheetData.meetings;
   var parts = [];
-  if (evacSheetData.meetings.length) {
+
+  if (M.length) {
     // 里別清單（去重）－供 alert_boro 使用，AI 才知道有效的里別名稱
     var boros = [];
-    evacSheetData.meetings.forEach(function(m){
-      if (m.boro && boros.indexOf(m.boro) < 0) boros.push(m.boro);
-    });
+    M.forEach(function(m){ if (m.boro && boros.indexOf(m.boro) < 0) boros.push(m.boro); });
     if (boros.length) parts.push('里別（可用於 alert_boro）：' + boros.join('、'));
-    parts.push('集結點：' + evacSheetData.meetings.map(function(m){ return m.name + (m.boro ? '(' + m.boro + ')' : ''); }).join('、'));
+
+    // 問題若點名某些里別/集結點 → 注入該里完整對應（集結點→防護站→收容所）＋人數
+    var hit = M.filter(function(m){
+      if (m.boro && (q.indexOf(m.boro) >= 0 || q.indexOf(normBoro(m.boro)) >= 0)) return true;
+      if (m.name && q.indexOf(m.name) >= 0) return true;
+      return false;
+    });
+
+    if (hit.length) {
+      var byBoro = {};
+      hit.forEach(function(m){ (byBoro[m.boro] = byBoro[m.boro] || []).push(m); });
+      var lines = [];
+      Object.keys(byBoro).forEach(function(b){
+        var ms = byBoro[b];
+        lines.push('【' + b + '】' + (ms[0].boroTotal ? '預估 ' + ms[0].boroTotal + ' 人' : ''));
+        lines.push('  集結點：' + ms.map(function(m){ return m.name; }).join('、'));
+        if (ms[0].shieldName) lines.push('  對應防護站：' + ms[0].shieldName);
+        if (ms[0].shelterNames && ms[0].shelterNames.length)
+          lines.push('  對應收容所：' + ms[0].shelterNames.join('、'));
+      });
+      parts.push('〔相關里別對應（來自 Sheet）〕\n' + lines.join('\n'));
+    } else {
+      // 未點名：給集結點(里別) 概覽
+      parts.push('集結點：' + M.map(function(m){ return m.name + (m.boro ? '(' + m.boro + ')' : ''); }).join('、'));
+    }
+
+    // 壅塞/人數類問題：補各里預估人數一覽（判斷瓶頸用）
+    if (/壅塞|擁塞|塞車|瓶頸|人數|人潮|多少人|擁擠|負荷/.test(q)) {
+      var seen = {}, crowd = [];
+      M.forEach(function(m){
+        if (m.boro && m.boroTotal && !seen[m.boro]) { seen[m.boro] = 1; crowd.push(m.boro + ' ' + m.boroTotal + '人'); }
+      });
+      if (crowd.length) parts.push('各里預估疏散人數（判斷壅塞參考）：' + crowd.join('、'));
+    }
   }
+
   if (evacSheetData.shields.length)
     parts.push('防護站：' + evacSheetData.shields.map(function(s){ return s.name; }).join('、'));
   if (evacSheetData.shelters.length)
@@ -544,8 +579,8 @@ function buildEvacPlacesContext() {
   if (!parts.length) return '';
   var body = parts.join('\n');
   // 避免 prompt 超過 Groq token 限制，截斷超長清單
-  if (body.length > 2000) body = body.substring(0, 2000) + '…（清單過長已截斷）';
-  return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取）】\n' + body;
+  if (body.length > 2200) body = body.substring(0, 2200) + '…（清單過長已截斷）';
+  return '\n\n【疏散地點清單（來自 Sheet，draw 及回答中的地點名稱必須從此清單選取；★路線一律依即時路況＋路障規劃，Sheet 內無權威路線、勿引用舊路徑）】\n' + body;
 }
 
 function buildRoadblockContext() {
@@ -1525,7 +1560,7 @@ async function sendQA() {
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
-  var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃爍|里|怎麼走|路線|路怎麼|怎麼去/.test(q) ? buildEvacPlacesContext() : '';
+  var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃爍|里|怎麼走|路線|路怎麼|怎麼去|壅塞|塞車|瓶頸|人數/.test(q) ? buildEvacPlacesContext(q) : '';
   var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
@@ -2435,10 +2470,11 @@ function checkRouteBlocked(routeCoords, stepNames){
 }
 
 // ── 避難疏散圖層 ─────────────────────────────────────────────────
-// 欄位索引（0-based）：
+// 欄位索引（0-based，依實際 Sheet 表頭）：
 // 0=縣市別 1=區別 2=里別 3=集結點 4=集結點座標
-// 5=防護站 6=防護站座標 7=預估人數 8=里別小計
-// 9=收容所 10=收容所座標 11=備註
+// 5=防護站 6=防護站座標 7=集結點→防護站疏散路徑【過時，不採用】 8=預估收容人數
+// 9=里別小計(人) 10=收容所 11=收容所座標 12=防護站→收容所疏散路徑【過時，不採用】 13=備註
+// ※ 路線一律由 AI 依即時路況＋路障動態規劃，不讀 Sheet 內的舊路徑欄位。
 var evacLoaded=false;
 var _searchMarker=null;
 // Sheet 讀進來的疏散資料，供 AI 路線查詢使用
@@ -2534,15 +2570,20 @@ function parseEvacData(rows){
   var lastCity='',lastDist='',lastBoro='';
   var lastShieldName='',lastShieldCoord='';
   var lastShelterName='',lastShelterCoord='';
+  var lastBoroTotal='';   // 欄9 里別小計（每里一次，需繼承）
+  // 註：欄7（集結點→防護站）、欄12（防護站→收容所）為 Sheet 內疏散路徑，已過時不採用；
+  //     路線一律由 AI 依即時路況＋路障動態規劃。此處只取「對應關係」與「人數」。
 
   for(var i=1;i<rows.length;i++){
     var r=rows[i];
     if(!r||r.length<5) continue;
     if(r[0]&&r[0].trim()) lastCity=r[0].trim();
     if(r[1]&&r[1].trim()) lastDist=r[1].trim();
-    if(r[2]&&r[2].trim()) lastBoro=r[2].trim().replace(/\*/g,'');
+    // 里別變更時，重置「每里一次」的繼承欄位，避免殘留到下一個里
+    if(r[2]&&r[2].trim()){ lastBoro=r[2].trim().replace(/\*/g,''); lastBoroTotal=''; }
     if(r[5]&&r[5].trim()) lastShieldName=r[5].trim();
     if(r[6]&&r[6].trim()) lastShieldCoord=r[6].trim();
+    if(r[9]&&r[9].trim()) lastBoroTotal=r[9].trim();                       // 欄9 里別小計(人)
     if(r[10]&&r[10].trim()) lastShelterName=r[10].trim();
     if(r[11]&&r[11].trim()) lastShelterCoord=r[11].trim().replace(/[()]/g,'');
 
@@ -2550,7 +2591,7 @@ function parseEvacData(rows){
     var mtgCoord=r[4]?r[4].trim():'';
     if(!mtg) continue;
 
-    // 集結點（同時記錄對應的防護站與收容所名稱）
+    // 集結點（同時記錄對應的防護站、收容所、該里人數）
     var mc=parseCoord(mtgCoord);
     if(mc){
       var shieldLabel=extractEvacName(lastShieldName)||'';
@@ -2558,7 +2599,8 @@ function parseEvacData(rows){
       meetings.push({
         name:mtg,city:lastCity,dist:lastDist,boro:lastBoro,lat:mc.lat,lng:mc.lng,
         shieldName:shieldLabel,
-        shelterNames:shelterParts2
+        shelterNames:shelterParts2,
+        boroTotal:lastBoroTotal              // 欄9 該里預估疏散人數（判斷壅塞用，非路線）
       });
     }
 
