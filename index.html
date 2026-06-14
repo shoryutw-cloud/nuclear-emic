@@ -1269,13 +1269,19 @@ async function processRouteItems(routeItems) {
 
 // 偵測「畫出所有集結點→防護站路線」這類批次指令
 function isBatchEvacRouteQuery(q) {
-  return /所有|全部|每個|各個|各集結|逐一|每一/.test(q) && /集結點|疏散點/.test(q)
-      && /防護站|路線|疏散|路怎麼|怎麼走|堵|塞|瓶頸/.test(q);
+  var meeting = /集結點|疏散點|集結/.test(q);
+  var shield  = /防護站/.test(q);
+  var route   = /路線|路徑|怎麼走|路怎麼|疏散路|堵|塞|擁塞|壅塞|瓶頸/.test(q);
+  var allWord = /所有|全部|每個|各個|各集結|逐一|每一|各|個集結/.test(q);
+  // 集結點→防護站的路線需求必然是批次（幾十條，AI 畫不出）：
+  //  (集結點 + 防護站 + 路線/壅塞) 或 (所有/各 + 集結點 + 路線/壅塞)
+  return (meeting && shield && route) || (allWord && meeting && route);
 }
 
-// 批次畫出所有集結點→對應防護站路線（重疊堆疊變深＝潛在瓶頸）
+// 批次畫出集結點→對應防護站路線（重疊堆疊變深＝潛在瓶頸）
+// maxKm>0 時只畫距目前電廠 maxKm 內的集結點（例如 8km EPZ）
 var _evacRoutesDrawing = false;
-async function drawAllEvacRoutes() {
+async function drawAllEvacRoutes(maxKm) {
   if (_evacRoutesDrawing) return;
   if (!evacSheetData.meetings.length) {
     addQAMessage('集結點資料尚未載入完成，請稍候幾秒再試。', 'ai');
@@ -1283,20 +1289,45 @@ async function drawAllEvacRoutes() {
   }
   _evacRoutesDrawing = true;
   if (!layerGroups.evacRoutes) layerGroups.evacRoutes = L.layerGroup().addTo(map);
+  if (!map.hasLayer(layerGroups.evacRoutes)) map.addLayer(layerGroups.evacRoutes);
   layerGroups.evacRoutes.clearLayers();
 
   // 防護站名稱→座標 對照表
   var shieldByName = {};
   evacSheetData.shields.forEach(function(s){ if(s.name) shieldByName[s.name] = s; });
 
-  var meetings = evacSheetData.meetings.filter(function(m){ return m.lat && m.lng; });
+  var meetings = evacSheetData.meetings.filter(function(m){
+    if (!m.lat || !m.lng) return false;
+    if (maxKm && maxKm > 0 && haversine(m.lat, m.lng, currentPlant.lat, currentPlant.lng) > maxKm) return false;
+    return true;
+  });
+  if (!meetings.length) {
+    _evacRoutesDrawing = false;
+    addQAMessage('範圍內沒有集結點資料（可能此電廠尚未載入或超出 ' + maxKm + 'km）。', 'ai');
+    return;
+  }
+
+  // 圖示：集結點、防護站
+  var icM = L.icon({iconUrl:'Meetingpoint.png', iconSize:[24,24], iconAnchor:[12,24]});
+  var icS = L.icon({iconUrl:'shield.png', iconSize:[26,26], iconAnchor:[13,26]});
+  var shieldsDrawn = {};
+
   var statusMsg = addQAMessage('開始繪製 0/' + meetings.length + ' 條疏散路線…', 'ai');
   var drawn = 0;
 
   for (var i = 0; i < meetings.length; i++) {
     var m = meetings[i];
+    // 標示要啟動的集結點
+    L.marker([m.lat, m.lng], {icon:icM}).addTo(layerGroups.evacRoutes)
+      .bindTooltip(m.name + (m.boro ? '（' + m.boro + '）' : ''), {direction:'top'});
     var sh = (m.shieldName && shieldByName[m.shieldName]) || findNearestProtectionStation(m.lat, m.lng);
     if (!sh || !sh.lat) continue;
+    // 標示對應防護站（同站只標一次）
+    if (!shieldsDrawn[sh.name]) {
+      shieldsDrawn[sh.name] = true;
+      L.marker([sh.lat, sh.lng], {icon:icS}).addTo(layerGroups.evacRoutes)
+        .bindTooltip('防護站：' + sh.name, {direction:'top'});
+    }
     try {
       var url = 'https://router.project-osrm.org/route/v1/driving/' +
         m.lng + ',' + m.lat + ';' + sh.lng + ',' + sh.lat + '?overview=full&geometries=geojson';
@@ -1313,8 +1344,11 @@ async function drawAllEvacRoutes() {
     await new Promise(function(r){ setTimeout(r, 120); }); // 節流，避免 OSRM 限速
   }
 
+  // 鏡頭聚焦到這批集結點
+  try { map.fitBounds(L.latLngBounds(meetings.map(function(m){return [m.lat,m.lng];})).pad(0.2)); } catch(e) {}
+
   _evacRoutesDrawing = false;
-  setQAMessageText(statusMsg, '已畫出 ' + drawn + ' 條集結點→防護站路線。顏色越深＝越多路線重疊，即潛在塞車瓶頸。');
+  setQAMessageText(statusMsg, '已畫出 ' + drawn + ' 條集結點→防護站路線（共 ' + meetings.length + ' 個集結點）。紅線顏色越深＝越多路線重疊，即潛在塞車瓶頸。');
 }
 
 // 去掉通用詞，只保留地名核心（里名、地區名）
@@ -1715,9 +1749,12 @@ async function sendQA() {
 
   // 路線由主 AI 回傳的 draw[type=route] 統一處理（見 processRouteItems）
   var routeCtx = null;
-  // 批次指令：畫出所有集結點→防護站路線（程式處理，非 AI）
+  // 批次指令：畫出集結點→防護站路線（程式處理，非 AI）
   var batchEvac = isBatchEvacRouteQuery(q);
-  if (batchEvac) drawAllEvacRoutes();
+  if (batchEvac) {
+    var kmMatch = q.match(/(\d+(?:\.\d+)?)\s*(?:KM|km|公里|公裏|千米)/);
+    drawAllEvacRoutes(kmMatch ? parseFloat(kmMatch[1]) : 0);  // 0 = 全部集結點
+  }
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
