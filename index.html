@@ -517,7 +517,7 @@ async function loadPDFs() {
     } catch(e) { console.warn('PDF 載入失敗:', fname, e.message); }
   }
 }
-async function callAI(messages, maxTokens, temperature, fastModel) {
+async function callAI(messages, maxTokens, temperature, fastModel, jsonMode) {
   var provider = document.getElementById('aiProvider').value;
   var key = getActiveKey();
   if (!key) { showKeyReminder(); throw new Error('請先輸入 API Key'); }
@@ -547,6 +547,7 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
       contents: contents,
       generationConfig: {maxOutputTokens: maxTokens, temperature: temperature}
     };
+    if (jsonMode) body.generationConfig.responseMimeType = 'application/json'; // 強制合法 JSON
     if (sysText.trim()) body.systemInstruction = {parts:[{text:sysText.trim()}]};
     var gr = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key='+key, {
       method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
@@ -556,9 +557,11 @@ async function callAI(messages, maxTokens, temperature, fastModel) {
     return (gd.candidates&&gd.candidates[0]&&gd.candidates[0].content&&gd.candidates[0].content.parts&&gd.candidates[0].content.parts[0]&&gd.candidates[0].content.parts[0].text)||'';
   } else {
     var model = fastModel ? 'llama-3.1-8b-instant' : 'llama-3.3-70b-versatile';
+    var payload = {model:model, max_tokens:maxTokens, temperature:temperature, messages:messages};
+    if (jsonMode) payload.response_format = {type:'json_object'}; // 強制合法 JSON
     var gr = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body: JSON.stringify({model:model, max_tokens:maxTokens, temperature:temperature, messages:messages})
+      body: JSON.stringify(payload)
     });
     var gd = await gr.json();
     if (gd.error) throw new Error(gd.error.message);
@@ -1249,6 +1252,21 @@ function showKeyReminder(){
   setTimeout(function(){t.style.display='none';},3000);
 }
 
+// 容錯解析 AI 回傳的 JSON：直接解析失敗時做常見修補（去碼框/智慧引號/尾逗號/裸換行）
+function parseAIJSON(raw){
+  var clean=String(raw).replace(/```json|```/g,'').trim();
+  var j1=clean.indexOf('{'), j2=clean.lastIndexOf('}');
+  if(j1<0||j2<0) throw new Error('回應非 JSON 格式');
+  var body=clean.substring(j1,j2+1);
+  try{ return JSON.parse(body); }catch(e){}
+  var repaired=body
+    .replace(/[“”]/g,'"').replace(/[‘’]/g,"'")  // 智慧引號→直引號
+    .replace(/,\s*([}\]])/g,'$1');                                   // 去除尾逗號
+  try{ return JSON.parse(repaired); }catch(e){}
+  try{ return JSON.parse(repaired.replace(/\r/g,'').replace(/\n/g,' ')); }catch(e){} // 裸換行→空白
+  throw new Error('JSON 解析失敗');
+}
+
 // ── AI 防護建議 ────────────────────────────────────────────────
 async function generateAI(){
   var key=getActiveKey();
@@ -1263,11 +1281,15 @@ async function generateAI(){
   var knowledge=getKnowledge().substring(0,8000);
   var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
   try{
-    var text=await callAI([{role:'user',content:prompt}],1500,0.3,false);
-    var clean=text.replace(/```json|```/g,'').trim();
-    var j1=clean.indexOf('{'),j2=clean.lastIndexOf('}');
-    if(j1<0)throw new Error('格式錯誤');
-    renderRecommendations(JSON.parse(clean.substring(j1,j2+1)));
+    var text=await callAI([{role:'user',content:prompt}],1500,0.3,false,true); // jsonMode 強制合法 JSON
+    try{
+      renderRecommendations(parseAIJSON(text));
+    }catch(pe){
+      // 解析仍失敗 → 不丟紅字，直接把 AI 文字內容呈現出來（DEMO 友善）
+      console.warn('AI JSON 解析失敗，改顯示原文:', pe.message);
+      var plain=String(text).replace(/```json|```/g,'').trim();
+      document.getElementById('recList').innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text);white-space:pre-wrap">'+escHtml(plain)+'</div>';
+    }
   }catch(e){
     document.getElementById('recList').innerHTML='<div style="color:var(--red);font-size:13px;padding:10px;background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:6px">AI 呼叫失敗：'+e.message+'</div>';
   }
@@ -1869,7 +1891,7 @@ async function sendQA() {
 
   try {
     // 問答用 70B 大模型（品質優先；8B 太笨會答錯、畫錯點）
-    var answer = await callAI(messages,1500,0.3,false);
+    var answer = await callAI(messages,1500,0.3,false,true); // jsonMode 強制合法 JSON
 
     // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
     var displayText = answer;
@@ -2151,15 +2173,18 @@ async function triggerBirdAnalysis(situation, overStations) {
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
 
   try {
-    var text = await callAI([{role:'user',content:prompt}],1800,0.25,false);
-    var clean = text.replace(/```json|```/g,'').trim();
-    var j1 = clean.indexOf('{'), j2 = clean.lastIndexOf('}');
-    if (j1 < 0) throw new Error('格式錯誤');
-    var parsed = JSON.parse(clean.substring(j1, j2+1));
-    renderRecommendations(parsed);
-    if (parsed.draw && parsed.draw.length) {
-      drawAIShapes(parsed.draw);
-      console.log('AI 繪圖：', parsed.draw.length, '個圖形');
+    var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true); // jsonMode
+    try {
+      var parsed = parseAIJSON(text);
+      renderRecommendations(parsed);
+      if (parsed.draw && parsed.draw.length) {
+        drawAIShapes(parsed.draw);
+        console.log('AI 繪圖：', parsed.draw.length, '個圖形');
+      }
+    } catch(pe) {
+      console.warn('AI JSON 解析失敗，改顯示原文:', pe.message);
+      var plain=String(text).replace(/```json|```/g,'').trim();
+      document.getElementById('recList').innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text);white-space:pre-wrap">'+escHtml(plain)+'</div>';
     }
   } catch(e) {
     document.getElementById('recList').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">AI 分析失敗：' + e.message + '</div>';
