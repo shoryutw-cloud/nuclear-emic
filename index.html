@@ -346,10 +346,10 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       </div>
       <div class="sec-label">底圖</div>
       <div class="basemap-row">
-        <div class="basemap-btn active" id="bm-street"  onclick="switchBasemap('street')">街道</div>
+        <div class="basemap-btn" id="bm-street"  onclick="switchBasemap('street')">街道</div>
         <div class="basemap-btn" id="bm-imagery" onclick="switchBasemap('imagery')">衛星</div>
         <div class="basemap-btn" id="bm-topo"    onclick="switchBasemap('topo')">地形</div>
-        <div class="basemap-btn" id="bm-nlsc"    onclick="switchBasemap('nlsc')">國土電子圖</div>
+        <div class="basemap-btn active" id="bm-nlsc"    onclick="switchBasemap('nlsc')">國土電子圖</div>
         <div class="basemap-btn" id="bm-nlscPhoto" onclick="switchBasemap('nlscPhoto')">國土空照</div>
       </div>
     </div>
@@ -806,7 +806,7 @@ function toggleLayerPanel(name,ltId){
   if(map.hasLayer(lg)){map.removeLayer(lg);el.classList.remove('on');}
   else{map.addLayer(lg);el.classList.add('on');}
 }
-var currentBase='street';
+var currentBase='nlsc';
 function switchBasemap(mode){
   ['street','imagery','topo','nlsc','nlscPhoto'].forEach(function(m){if(baseLayers[m]&&map.hasLayer(baseLayers[m]))map.removeLayer(baseLayers[m]);});
   if(baseLayers.labels&&map.hasLayer(baseLayers.labels))map.removeLayer(baseLayers.labels);
@@ -830,7 +830,7 @@ function initMap(){
   // 國土測繪中心通用版電子地圖／正射影像（OGC WMTS，免金鑰；台灣地名門牌較準）
   baseLayers.nlsc     =L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}',{attribution:'© 國土測繪中心',maxZoom:20});
   baseLayers.nlscPhoto=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}',{attribution:'© 國土測繪中心',maxZoom:20});
-  baseLayers.street.addTo(map);
+  baseLayers.nlsc.addTo(map);  // 預設：國土測繪通用版電子地圖（OSM 等保留為備援可切換）
   layerGroups.epz     =L.layerGroup().addTo(map);
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
