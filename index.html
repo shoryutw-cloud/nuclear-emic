@@ -163,14 +163,16 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .evac-divider{height:1px;background:var(--border);margin:3px 0 6px}
 .evac-status{font-size:12px;color:var(--text-dim);text-align:center;padding-top:3px;min-height:14px}
 
-.map-ctx-menu{display:none;position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);overflow:hidden;min-width:148px;font-family:var(--sans)}
+.map-ctx-menu{display:none;position:fixed;z-index:5000;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);min-width:152px;font-family:var(--sans)}
 .map-ctx-menu.show{display:block}
-.ctx-item{padding:10px 15px;cursor:pointer;font-size:13px;color:var(--navy);transition:background 0.12s;user-select:none}
+.ctx-item{position:relative;padding:10px 15px;cursor:pointer;font-size:13px;color:var(--navy);transition:background 0.12s;user-select:none;white-space:nowrap}
 .ctx-item:hover{background:#f0f4f8}
 .ctx-item.danger{color:var(--red)}
 .ctx-item.danger:hover{background:#fef2f2}
-.ctx-sub{padding-left:26px;font-size:12px;background:#f7fafd;border-top:1px solid #eef3f8}
-.ctx-sep{height:1px;background:#e3eaf2;margin:0}
+.ctx-arrow{float:right;margin-left:16px;opacity:.5}
+.ctx-submenu{display:none;position:absolute;left:100%;top:-1px;min-width:132px;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);overflow:hidden}
+.ctx-submenu.left{left:auto;right:100%}
+.ctx-has-sub:hover>.ctx-submenu{display:block}
 </style>
 </head>
 <body>
@@ -275,15 +277,19 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
   <!-- 右鍵選單 -->
   <div id="mapCtxMenu" class="map-ctx-menu">
-    <div class="ctx-item" id="ctxSetOrigin" onclick="doSetRouteOrigin()">📍 設為起點</div>
-    <div class="ctx-item" id="ctxSetDest"   onclick="doSetRouteDest()">🏁 設為終點</div>
-    <div class="ctx-item"  id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
-    <div class="ctx-sep" id="ctxAddSep"></div>
-    <div class="ctx-item" id="ctxAddPlace" onclick="toggleAddPlaceSub(event)">➕ 新增地點 ▾</div>
-    <div id="ctxAddPlaceSub" style="display:none">
-      <div class="ctx-item ctx-sub" onclick="doAddPlace('meeting')">🟠 集結點</div>
-      <div class="ctx-item ctx-sub" onclick="doAddPlace('shield')">🛡️ 防護站</div>
-      <div class="ctx-item ctx-sub" onclick="doAddPlace('shelter')">🏠 收容所</div>
+    <div class="ctx-item ctx-has-sub" id="ctxRoute" onclick="event.stopPropagation()">🧭 設定路線 <span class="ctx-arrow">▸</span>
+      <div class="ctx-submenu">
+        <div class="ctx-item" onclick="doSetRouteOrigin()">📍 設為起點</div>
+        <div class="ctx-item" onclick="doSetRouteDest()">🏁 設為終點</div>
+      </div>
+    </div>
+    <div class="ctx-item" id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
+    <div class="ctx-item ctx-has-sub" id="ctxAddPlace" onclick="event.stopPropagation()">➕ 新增地點 <span class="ctx-arrow">▸</span>
+      <div class="ctx-submenu">
+        <div class="ctx-item" onclick="doAddPlace('meeting')">🟠 集結點</div>
+        <div class="ctx-item" onclick="doAddPlace('shield')">🛡️ 防護站</div>
+        <div class="ctx-item" onclick="doAddPlace('shelter')">🏠 收容所</div>
+      </div>
     </div>
     <div class="ctx-item danger" id="ctxDelBlock" onclick="doDeleteRoadblock()">🗑 刪除路障</div>
   </div>
@@ -2535,30 +2541,34 @@ function getBlockIcon(){
 
 function showMapCtxMenu(containerPt, latlng, existingData){
   var menu=document.getElementById('mapCtxMenu');
-  var mapEl=document.getElementById('map');
-  var rect=mapEl.getBoundingClientRect();
-  menu.style.left=(rect.left+containerPt.x+2)+'px';
-  menu.style.top =(rect.top +containerPt.y+2)+'px';
-  document.getElementById('ctxSetOrigin').style.display=existingData?'none':'block';
-  document.getElementById('ctxSetDest').style.display=existingData?'none':'block';
+  var rect=document.getElementById('map').getBoundingClientRect();
+  document.getElementById('ctxRoute').style.display=existingData?'none':'block';
   document.getElementById('ctxAddBlock').style.display=existingData?'none':'block';
-  document.getElementById('ctxAddSep').style.display=existingData?'none':'block';
   document.getElementById('ctxAddPlace').style.display=existingData?'none':'block';
-  document.getElementById('ctxAddPlaceSub').style.display='none'; // 每次重開都收合
   document.getElementById('ctxDelBlock').style.display=existingData?'block':'none';
   _ctxLatLng=latlng;
   _ctxPendingMarker=existingData?existingData.marker:null;
   _ctxPendingId    =existingData?existingData.id:null;
-  menu.classList.add('show');
+  _placeCtxMenu(menu, rect.left+containerPt.x, rect.top+containerPt.y);
 }
 function hideMapCtxMenu(){
   document.getElementById('mapCtxMenu').classList.remove('show');
   var em=document.getElementById('evacCtxMenu'); if(em) em.classList.remove('show');
 }
-function toggleAddPlaceSub(ev){
-  if(ev){ ev.stopPropagation(); } // 別讓 document click 把整個選單關掉
-  var sub=document.getElementById('ctxAddPlaceSub');
-  sub.style.display = sub.style.display==='none' ? 'block' : 'none';
+// 在視窗內定位選單：右/下空間不足時自動往左/上翻，並決定子選單展開方向
+function _placeCtxMenu(menu, vx, vy){
+  menu.classList.add('show');
+  var pad=6, mw=menu.offsetWidth, mh=menu.offsetHeight;
+  var left=vx+2, top=vy+2;
+  if(left+mw > window.innerWidth -pad) left=Math.max(pad, window.innerWidth -mw-pad);
+  if(top +mh > window.innerHeight-pad) top =Math.max(pad, vy-mh-2);  // 下緣不足→往上翻
+  if(top<pad) top=pad;
+  menu.style.left=left+'px';
+  menu.style.top =top +'px';
+  // 子選單：右側空間不足就改往左展開
+  var rightFits = (left+mw+140) <= (window.innerWidth-pad);
+  var subs=menu.querySelectorAll('.ctx-submenu');
+  for(var i=0;i<subs.length;i++) subs[i].classList.toggle('left', !rightFits);
 }
 
 function addRoadblockMarker(id,lat,lng){
@@ -2771,11 +2781,9 @@ var _evacCtxItem=null;
 function showEvacCtxMenu(containerPt,item){
   var menu=document.getElementById('evacCtxMenu');
   var rect=document.getElementById('map').getBoundingClientRect();
-  menu.style.left=(rect.left+containerPt.x+2)+'px';
-  menu.style.top =(rect.top +containerPt.y+2)+'px';
   _evacCtxItem=item;
   document.getElementById('mapCtxMenu').classList.remove('show');
-  menu.classList.add('show');
+  _placeCtxMenu(menu, rect.left+containerPt.x, rect.top+containerPt.y);
 }
 function doDisablePlace(){
   var item=_evacCtxItem;
