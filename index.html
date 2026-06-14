@@ -201,7 +201,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     <button class="tool-btn" onclick="map.zoomOut()">－</button>
     <div class="tool-divider"></div>
     <button class="tool-btn" id="btnLayerEpz"      onclick="toggleTool('epz',this)"     title="EPZ">EPZ</button>
-    <button class="tool-btn" id="btnLayerStation"  onclick="toggleTool('station',this)" title="測站">測站</button>
+    <button class="tool-btn" id="btnLayerStation"  onclick="toggleStations(this)" title="測站（點擊讀取原能會即時監測站）">測站</button>
     <button class="tool-btn" id="btnLayerRoute"    onclick="toggleTool('route',this)"   title="路線">路線</button>
     <button class="tool-btn" id="btnLayerHospital" onclick="toggleTool('hospital',this)" title="醫院">醫院</button>
     <button class="tool-btn" id="btnEvacPanel" onclick="toggleEvacPanel()" title="避難疏散點">疏散</button>
@@ -642,6 +642,58 @@ function toggleTool(name,btn){
   if(map.hasLayer(lg)){map.removeLayer(lg);btn.classList.remove('active');var lt=document.getElementById('lt-'+name);if(lt)lt.classList.remove('on');}
   else{map.addLayer(lg);btn.classList.add('active');var lt=document.getElementById('lt-'+name);if(lt)lt.classList.add('on');}
 }
+
+// ── 通用 JSONP（GAS doGet 跨域取資料用；GAS fetch 會被 CORS 擋，故用 script 注入）──
+var _jsonpSeq = 0;
+function jsonpGet(url, cb, timeoutMs){
+  var name = '_envcb' + (_jsonpSeq++);
+  var s = document.createElement('script');
+  var done = false;
+  var timer = setTimeout(function(){ if(!done){ cleanup(); cb(null); } }, timeoutMs||25000);
+  function cleanup(){ done=true; clearTimeout(timer); try{delete window[name];}catch(e){window[name]=undefined;} if(s.parentNode) s.parentNode.removeChild(s); }
+  window[name] = function(data){ cleanup(); cb(data); };
+  s.onerror = function(){ if(!done){ cleanup(); cb(null); } };
+  s.src = url + (url.indexOf('?')>=0?'&':'?') + 'callback=' + name;
+  document.head.appendChild(s);
+}
+
+// ── 測站按鈕：開啟才讀取原能會即時監測站；再按一次隱藏 ──
+var stationLayerOn = false;
+function toggleStations(btn){
+  stationLayerOn = !stationLayerOn;
+  var lt=document.getElementById('lt-station');
+  if(stationLayerOn){
+    map.addLayer(layerGroups.station);
+    btn.classList.add('active'); if(lt) lt.classList.add('on');
+    refreshEnvStations();   // 點擊才去抓官方即時數值
+  } else {
+    map.removeLayer(layerGroups.station);
+    btn.classList.remove('active'); if(lt) lt.classList.remove('on');
+  }
+}
+
+// 呼叫自己的 GAS 抓原能會 63 站 CSV（GAS 同時寫入 Sheet）→ 畫圖 + AI 判讀異常
+function refreshEnvStations(){
+  var sb=document.getElementById('sheetsStatus');
+  if(sb){ sb.textContent='正在讀取原能會即時監測站…'; sb.style.background='#f0f9ff'; sb.style.color='#0369a1'; }
+  jsonpGet(WEBAPP_URL + '?action=envMonitor', function(data){
+    if(!data || !data.stations || !data.stations.length){
+      if(sb){ sb.textContent='⚠ 監測站讀取失敗（GAS 未部署或無回應）'; sb.style.background='#fee2e2'; sb.style.color='#dc2626'; }
+      console.warn('envMonitor 回傳空或失敗', data);
+      return;
+    }
+    var arr = data.stations.filter(function(s){
+      return !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng)) && !isNaN(parseFloat(s.value));
+    }).map(function(s){
+      return {code:s.code,name:s.name,county:s.county,lat:parseFloat(s.lat),lng:parseFloat(s.lng),value:parseFloat(s.value),status:s.status||'正常',type:'sheets'};
+    });
+    stations = arr;
+    drawStations(stations); renderStationList(stations);
+    checkThresholds(stations);   // ← 偵測異常 → 查知識庫 → 鳥 AI 主動跳出（既有機制）
+    if(sb){ sb.textContent='原能會監測站 '+arr.length+' 站（'+new Date().toLocaleTimeString('zh-TW')+' 更新，來源 '+(data.source||'')+'）'; }
+    console.log('envMonitor:', arr.length, '站，來源', data.source);
+  }, 25000);
+}
 function toggleLayerPanel(name,ltId){
   var lg=layerGroups[name];var el=document.getElementById(ltId);if(!lg||!el)return;
   if(map.hasLayer(lg)){map.removeLayer(lg);el.classList.remove('on');}
@@ -670,7 +722,7 @@ function initMap(){
   layerGroups.epz     =L.layerGroup().addTo(map);
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
   layerGroups.aiRoute  =L.layerGroup().addTo(map); // AI 規劃路線
-  layerGroups.station =L.layerGroup().addTo(map);
+  layerGroups.station =L.layerGroup(); // 測站圖層預設關閉，點「測站」按鈕才讀取顯示
   layerGroups.hospital=L.layerGroup();
   layerGroups.manual  =L.layerGroup().addTo(map);
   layerGroups.meeting1=L.layerGroup();
@@ -816,6 +868,7 @@ function getPlantKey(plant){
   return 'nuclear2';
 }
 async function fetchFromSheets(){
+  if(!stationLayerOn) return; // 測站圖層關閉時不讀取（顯示由「測站」按鈕控制）
   try{
     var res=await fetch(SHEET_CSV,{signal:AbortSignal.timeout(8000)});
     if(!res.ok)throw new Error('HTTP '+res.status);

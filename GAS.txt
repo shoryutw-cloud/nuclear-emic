@@ -1,0 +1,425 @@
+// ══════════════════════════════════════════════════════════════
+// 核二廠 EPZ 輻射監測 + 知識庫自動更新
+// v3 - 加入 Web App 接收網站回饋，自動寫入 Google Doc 知識庫
+// ══════════════════════════════════════════════════════════════
+
+const SHEET_ID   = '12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+const DATA_SHEET = '輻射監測數據';
+const LOG_SHEET  = '更新記錄';
+const FB_SHEET   = '知識庫回饋';   // 新增：存放回饋紀錄
+
+// 知識庫 Google Doc ID（對應三份計畫書）
+const KNOWLEDGE_DOCS = {
+  '新北市': '1KfLFFV0JHBoYqW6hZkzyeDyfFqyIp4e1-Kr9zXSoO94',
+  '基隆市': '19jluyANhSIeKw-2Yz69hMH8mrQnI-rr3Zmbzcgm-rSM',
+  '屏東縣': '1T11L60hnUqzu4uZtNlonZsqtyICZyHAf7YHIXpDTDCc',
+};
+const DEFAULT_DOC = KNOWLEDGE_DOCS['新北市']; // 預設寫入新北市知識庫
+
+const TREMAP_URL = 'https://www.aec.gov.tw/open/gammamonitor_u.csv';
+const THRESHOLD_WARN  = 0.2;
+const THRESHOLD_ALERT = 20;
+
+// ──────────────────────────────────────────────────────────────
+// Web App 入口：接收網站 POST 請求
+// 部署為 Web App 後，網站可以直接 POST 更新內容
+// ──────────────────────────────────────────────────────────────
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const action = data.action;
+
+    if (action === 'update_knowledge') {
+      return handleKnowledgeUpdate(data);
+    } else if (action === 'log_feedback') {
+      return handleFeedbackLog(data);
+    } else if (action === 'save_qa') {
+      return handleSaveQA(data);
+    } else if (action === 'add_roadblock') {
+      return handleAddRoadblock(data);
+    } else if (action === 'delete_roadblock') {
+      return handleDeleteRoadblock(data);
+    } else if (action === 'update_roadblock_name') {
+      return handleUpdateRoadblockName(data);
+    }
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, error: '未知的 action' })
+    ).setMimeType(ContentService.MimeType.JSON);
+
+  } catch(err) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ success: false, error: err.message })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// GET 入口（支援 JSONP：?action=envMonitor&callback=xxx）
+function doGet(e) {
+  var p = (e && e.parameter) ? e.parameter : {};
+  if (p.action === 'envMonitor') return handleEnvMonitor(p);
+  return ContentService.createTextOutput(
+    JSON.stringify({ status: 'ok', message: '核二廠EPZ知識庫 Web App 正常運作' })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ──────────────────────────────────────────────────────────────
+// 環境輻射監測站：抓原能會官方 CSV → 寫入「輻射監測數據」分頁 → 回傳 JSON(P)
+// 前端按「測站」按鈕時呼叫。回傳格式：{success, source, count, stations:[{code,name,county,lat,lng,value,status}]}
+// ──────────────────────────────────────────────────────────────
+function handleEnvMonitor(p) {
+  var rows = [], source = '';
+  try { rows = fetchTREMAP(); source = 'TREMAP'; }
+  catch (err) { rows = getStaticStations(); source = '靜態備用(' + err.message + ')'; }
+
+  // 寫入 Sheet（沿用 fetchRadiationData 的寫法：保留手動備註、清空重寫、上色）
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var dataSheet = getOrCreateSheet(ss, DATA_SHEET);
+    if (dataSheet.getLastRow() === 0) setupHeaders(dataSheet);
+    var notes = getExistingNotes(dataSheet);
+    rows.forEach(function (s) { if (notes[s[0]]) s[8] = notes[s[0]]; });
+    var last = dataSheet.getLastRow();
+    if (last > 1) dataSheet.getRange(2, 1, last - 1, 9).clearContent();
+    if (rows.length) dataSheet.getRange(2, 1, rows.length, 9).setValues(rows);
+    colorByStatus(dataSheet, rows.length);
+    updateConfig(ss);
+    var logSheet = getOrCreateLogSheet(ss, LOG_SHEET);
+    var over = rows.filter(function (s) { return s[6] !== '正常'; }).length;
+    logSheet.appendRow([new Date(), '成功', '[envMonitor/' + source + '] ' + rows.length + '站，' + over + '站超標', over]);
+  } catch (werr) {
+    source += ' 寫表失敗:' + werr.message;
+  }
+
+  var stations = rows.map(function (s) {
+    return { code: s[0], name: s[1], county: s[2], lat: s[3], lng: s[4], value: s[5], status: s[6] };
+  });
+  var payload = JSON.stringify({ success: true, source: source, count: stations.length, stations: stations });
+  if (p.callback) {
+    return ContentService.createTextOutput(p.callback + '(' + payload + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ──────────────────────────────────────────────────────────────
+// 處理知識庫更新請求
+// ──────────────────────────────────────────────────────────────
+function handleKnowledgeUpdate(data) {
+  const updateContent = data.update_content || '';
+  const recTitle      = data.rec_title || '未命名建議';
+  const reason        = data.reason || '';
+  const isConflict    = data.has_conflict || false;
+  const isSpecial     = data.is_special_case || false;
+  const targetDoc     = data.target_doc || 'new_taipei'; // new_taipei / keelung / pingtung
+
+  if (!updateContent) {
+    return jsonResponse({ success: false, error: '更新內容為空' });
+  }
+
+  // 選擇對應的知識庫文件
+  let docId = DEFAULT_DOC;
+  if (targetDoc === 'keelung') docId = KNOWLEDGE_DOCS['基隆市'];
+  if (targetDoc === 'pingtung') docId = KNOWLEDGE_DOCS['屏東縣'];
+
+  // 在 Google Doc 最後加入更新區塊
+  const doc  = DocumentApp.openById(docId);
+  const body = doc.getBody();
+
+  // 加入分隔線和更新內容
+  const timestamp = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+  const tag = isConflict ? '【衝突特例更新】' : isSpecial ? '【特例補充】' : '【現場回饋補充】';
+
+  body.appendParagraph(''); // 空行
+  const divider = body.appendParagraph('═'.repeat(47));
+  divider.setHeading(DocumentApp.ParagraphHeading.NORMAL);
+  divider.editAsText().setFontSize(10).setForegroundColor('#888888');
+
+  const header = body.appendParagraph(`${tag} ${timestamp}`);
+  header.editAsText().setBold(true).setFontSize(12).setForegroundColor('#1a3a5c');
+
+  const recInfo = body.appendParagraph(`原始建議：${recTitle}`);
+  recInfo.editAsText().setFontSize(11).setItalic(true).setForegroundColor('#666666');
+
+  if (reason) {
+    const reasonPara = body.appendParagraph(`未採納原因：${reason}`);
+    reasonPara.editAsText().setFontSize(11).setForegroundColor('#666666');
+  }
+
+  if (isConflict) {
+    const warn = body.appendParagraph('⚠ 此更新與原知識庫有衝突，已由操作者確認為特例');
+    warn.editAsText().setFontSize(11).setForegroundColor('#dc2626').setBold(true);
+  }
+
+  const contentPara = body.appendParagraph(updateContent);
+  contentPara.editAsText().setFontSize(12).setForegroundColor('#1e3a5f');
+
+  doc.saveAndClose();
+
+  // 同時記錄到 Sheets 回饋工作表
+  logFeedbackToSheet(recTitle, reason, updateContent, isConflict, isSpecial, timestamp, docId);
+
+  return jsonResponse({
+    success: true,
+    message: `知識庫已更新：${timestamp}`,
+    doc_id: docId
+  });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 只記錄回饋（未採納但不需更新知識庫）
+// ──────────────────────────────────────────────────────────────
+function handleFeedbackLog(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let fbSheet = ss.getSheetByName(FB_SHEET);
+  if (!fbSheet) {
+    fbSheet = ss.insertSheet(FB_SHEET);
+    fbSheet.appendRow(['時間','建議標題','未採納原因','AI評估','是否更新','有無衝突']);
+    fbSheet.getRange(1,1,1,6).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+  }
+  fbSheet.appendRow([
+    new Date(),
+    data.rec_title || '',
+    data.reason || '',
+    data.evaluation || '',
+    data.needs_update ? '是' : '否',
+    data.has_conflict ? '是' : '否'
+  ]);
+  return jsonResponse({ success: true, message: '回饋已記錄' });
+}
+
+function logFeedbackToSheet(title, reason, content, conflict, special, time, docId) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    let s = ss.getSheetByName(FB_SHEET);
+    if (!s) {
+      s = ss.insertSheet(FB_SHEET);
+      s.appendRow(['時間','建議標題','未採納原因','更新內容','有無衝突','是否特例','文件ID']);
+      s.getRange(1,1,1,7).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+    }
+    s.appendRow([time, title, reason, content.substring(0,100)+'…', conflict?'是':'否', special?'是':'否', docId]);
+  } catch(e) {}
+}
+
+
+// ──────────────────────────────────────────────────────────────
+// 問答歷史儲存（寫入 Sheet「對話歷史」分頁）
+// ──────────────────────────────────────────────────────────────
+const QA_SHEET = '對話歷史';
+const QA_MAX_ROWS = 200;
+
+function handleSaveQA(data) {
+  try {
+    const ss    = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = getOrCreateQASheet(ss);
+    const now   = new Date().toLocaleString('zh-TW', {timeZone:'Asia/Taipei', hour12:false});
+    sheet.appendRow([now, data.role||'user', data.content||'', data.session||'']);
+    const rows = sheet.getLastRow();
+    if (rows > QA_MAX_ROWS + 1) sheet.deleteRows(2, rows - QA_MAX_ROWS - 1);
+    return jsonResponse({ success: true });
+  } catch(err) {
+    return jsonResponse({ success: false, error: err.message });
+  }
+}
+
+function getOrCreateQASheet(ss) {
+  let sheet = ss.getSheetByName(QA_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(QA_SHEET);
+    sheet.appendRow(['時間', '角色', '內容', '對話ID']);
+    sheet.setFrozenRows(1);
+    sheet.getRange('A1:D1').setFontWeight('bold');
+  }
+  return sheet;
+}
+
+// ──────────────────────────────────────────────────────────────
+// 路障：新增
+// ──────────────────────────────────────────────────────────────
+function handleAddRoadblock(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('路障');
+  if (!sh) {
+    sh = ss.insertSheet('路障');
+    sh.appendRow(['ID', '緯度', '經度', '新增時間', '刪除時間', '路名']);
+    sh.getRange(1, 1, 1, 6).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+  sh.appendRow([String(data.id), data.lat, data.lng, now]);
+  return jsonResponse({ success: true });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 路障：標記刪除時間（不刪除列）
+// ──────────────────────────────────────────────────────────────
+function handleDeleteRoadblock(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName('路障');
+  if (!sh) return jsonResponse({ success: false, error: '路障工作表不存在' });
+  const vals = sh.getDataRange().getValues();
+  for (let i = vals.length - 1; i >= 1; i--) {
+    if (String(vals[i][0]) === String(data.id)) {
+      const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+      sh.getRange(i + 1, 5).setValue(now);
+      return jsonResponse({ success: true });
+    }
+  }
+  return jsonResponse({ success: false, error: '找不到路障 ID: ' + data.id });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 路障：寫入路名（由前端查 OSRM 後回寫）
+// ──────────────────────────────────────────────────────────────
+function handleUpdateRoadblockName(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName('路障');
+  if (!sh) return jsonResponse({ success: false, error: '路障工作表不存在' });
+  // 確保第 F 欄有標頭
+  const lastCol = sh.getLastColumn();
+  if (lastCol < 6) {
+    sh.getRange(1, 6).setValue('路名');
+    sh.getRange(1, 6).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+  }
+  const vals = sh.getDataRange().getValues();
+  for (let i = vals.length - 1; i >= 1; i--) {
+    if (String(vals[i][0]) === String(data.id)) {
+      sh.getRange(i + 1, 6).setValue(data.roadName);
+      return jsonResponse({ success: true });
+    }
+  }
+  return jsonResponse({ success: false, error: '找不到路障 ID: ' + data.id });
+}
+
+function jsonResponse(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ──────────────────────────────────────────────────────────────
+// 以下是原有的輻射監測功能（不變）
+// ──────────────────────────────────────────────────────────────
+function fetchRadiationData() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let dataSheet = getOrCreateSheet(ss, DATA_SHEET);
+  let logSheet  = getOrCreateLogSheet(ss, LOG_SHEET);
+  if (dataSheet.getLastRow() === 0) setupHeaders(dataSheet);
+
+  let stations = [];
+  let source = '';
+  try {
+    stations = fetchTREMAP();
+    source = 'TREMAP';
+  } catch(e) {
+    logSheet.appendRow([new Date(), '警告', 'TREMAP失敗: ' + e.message + '，使用備用資料', 0]);
+    stations = getStaticStations();
+    source = '靜態備用';
+  }
+
+  if (stations.length === 0) {
+    logSheet.appendRow([new Date(), '失敗', '無法取得任何資料', 0]);
+    return;
+  }
+
+  const notes = getExistingNotes(dataSheet);
+  stations.forEach(s => { if (notes[s[0]]) s[8] = notes[s[0]]; });
+
+  const last = dataSheet.getLastRow();
+  if (last > 1) dataSheet.getRange(2, 1, last - 1, 9).clearContent();
+  dataSheet.getRange(2, 1, stations.length, 9).setValues(stations);
+  colorByStatus(dataSheet, stations.length);
+
+  const over = stations.filter(s => s[6] !== '正常').length;
+  logSheet.appendRow([new Date(), '成功', `[${source}] ${stations.length}站，${over}站超標`, over]);
+  updateConfig(ss);
+  Logger.log(`完成[${source}]：${stations.length}站，${over}站超標`);
+}
+
+function fetchTREMAP() {
+  const resp = UrlFetchApp.fetch(TREMAP_URL, {
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/csv,*/*' },
+    muteHttpExceptions: true, timeout: 25
+  });
+  if (resp.getResponseCode() !== 200) throw new Error(`HTTP ${resp.getResponseCode()}`);
+  const csv = resp.getContentText('UTF-8');
+  if (!csv || csv.length < 100) throw new Error('回應內容太短');
+  const rows = csv.trim().split('\n');
+  const result = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i].split(',').map(c => c.trim());
+    if (cols.length < 6) continue;
+    const lat = parseFloat(cols[3]), lng = parseFloat(cols[4]), val = parseFloat(cols[5]);
+    if (isNaN(lat)||isNaN(lng)||isNaN(val)) continue;
+    result.push(makeRow(cols[0], cols[1], cols[2]||'', lat, lng, val));
+  }
+  if (result.length === 0) throw new Error('解析不到有效資料');
+  return result;
+}
+
+function makeRow(code, name, county, lat, lng, val) {
+  let status = '正常';
+  if (val >= THRESHOLD_ALERT) status = '🔴 緊急';
+  else if (val >= THRESHOLD_WARN) status = '🟡 警戒';
+  return [code, name, county, lat, lng, val, status, new Date(), ''];
+}
+
+function getStaticStations() {
+  const s = [
+    ['NW001','野柳測站','新北市',25.131,121.686,0.09],
+    ['NW002','萬里測站','新北市',25.181,121.680,0.08],
+    ['NW003','金山測站','新北市',25.229,121.641,0.10],
+    ['NW004','石門測站','新北市',25.295,121.564,0.11],
+    ['NW005','三芝測站','新北市',25.260,121.502,0.09],
+    ['NW006','淡水測站','新北市',25.167,121.447,0.09],
+    ['KL001','基隆測站','基隆市',25.126,121.741,0.10],
+    ['TP001','台北測站','台北市',25.048,121.517,0.09],
+  ];
+  return s.map(r => makeRow(r[0],r[1],r[2],r[3],r[4],r[5]));
+}
+
+function getOrCreateSheet(ss, name) { return ss.getSheetByName(name) || ss.insertSheet(name); }
+function getOrCreateLogSheet(ss, name) {
+  let s = ss.getSheetByName(name);
+  if (!s) {
+    s = ss.insertSheet(name);
+    s.appendRow(['時間','狀態','訊息','超標測站數']);
+    s.getRange(1,1,1,4).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+  }
+  return s;
+}
+function setupHeaders(sheet) {
+  const h = ['測站代碼','測站名稱','縣市','緯度','經度','劑量率(μSv/h)','狀態','更新時間','手動備註'];
+  sheet.getRange(1,1,1,h.length).setValues([h]).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  [90,140,80,90,90,120,90,160,200].forEach((w,i) => sheet.setColumnWidth(i+1, w));
+}
+function colorByStatus(sheet, count) {
+  if (count < 1) return;
+  sheet.getRange(2,1,count,9).getValues().forEach((row,i) => {
+    const bg = row[6].includes('緊急') ? '#fee2e2' : row[6].includes('警戒') ? '#fef9c3' : '#ffffff';
+    sheet.getRange(i+2,1,1,9).setBackground(bg);
+  });
+}
+function getExistingNotes(sheet) {
+  const last = sheet.getLastRow();
+  if (last < 2) return {};
+  const notes = {};
+  sheet.getRange(2,1,last-1,9).getValues().forEach(row => { if(row[0]&&row[8]) notes[row[0]]=row[8]; });
+  return notes;
+}
+function updateConfig(ss) {
+  let cfg = ss.getSheetByName('設定') || ss.insertSheet('設定');
+  if (cfg.getLastRow() === 0) cfg.getRange('A1:B3').setValues([['最後更新時間',''],['閾值_警戒(μSv/h)',THRESHOLD_WARN],['閾值_緊急(μSv/h)',THRESHOLD_ALERT]]);
+  cfg.getRange('B1').setValue(new Date());
+}
+function setupHourlyTrigger() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction()==='fetchRadiationData').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('fetchRadiationData').timeBased().everyHours(1).create();
+  Logger.log('✅ 每小時觸發器已建立');
+  SpreadsheetApp.getUi().alert('✅ 完成！每小時自動抓取。');
+}
+function testFetch() {
+  fetchRadiationData();
+  SpreadsheetApp.getActiveSpreadsheet().toast('完成，請查看「輻射監測數據」', '✅', 5);
+}
