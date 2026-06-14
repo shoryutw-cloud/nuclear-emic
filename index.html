@@ -425,7 +425,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     </div>
     <div style="padding:10px 18px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0">
       <button onclick="closeAlert()" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:6px;background:#f8fafc;font-size:14px;cursor:pointer;font-family:var(--sans)">我知道了</button>
-      <button onclick="toggleBirdPanel();closeAlert()" style="flex:1;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;font-family:var(--sans)">完整 AI 建議</button>
+      <button onclick="showFullSimAdvice()" style="flex:1;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;font-family:var(--sans)">完整 AI 建議</button>
     </div>
   </div>
 </div>
@@ -479,6 +479,8 @@ var THRESHOLD_WARN = 0.2, THRESHOLD_ALERT = 100; // 警戒 0.2（橘）、緊急
 // ── 全域變數 ──────────────────────────────────────────────────
 var map, baseLayers = {}, layerGroups = {};
 var stations = [], manualData = [], simMode = false;
+var simContext = null;     // 目前模擬情境（電廠/等級/輻射/次生災害/現場描述），注入所有 AI 對話
+var lastSimAdvice = null;  // 模擬產生的完整建議（parsed），供「完整 AI 建議」重用，避免重複呼叫
 var windDir = null, windSpeed = null;
 var driveKnowledge = '', tdxTrafficSummary = '';
 var pdfBase64Cache = {};
@@ -1267,6 +1269,49 @@ function parseAIJSON(raw){
   throw new Error('JSON 解析失敗');
 }
 
+// 把目前模擬情境組成可注入 AI 的文字（無情境則回空字串）
+function buildSimContextText(){
+  if(!simContext) return '';
+  var d = (simContext.disasters && simContext.disasters.length) ? simContext.disasters.join('、') : '無';
+  return '\n\n【目前模擬情境】（使用者已設定，所有建議請依此情境）\n' +
+    '電廠：'+simContext.plant+'\n事故等級：'+simContext.level+
+    '\n最高輻射：'+simContext.value+' μSv/h\n次生災害：'+d+
+    (simContext.desc?('\n現場狀況：'+simContext.desc):'');
+}
+
+// 把模擬情境寫入 Sheet（記錄用，best-effort）
+function saveSimContextToSheet(c){
+  fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({
+    action:'save_sim_context', plant:c.plant, level:c.level, value:c.value,
+    disasters:(c.disasters||[]).join('、'), desc:c.desc||'', time:c.time
+  })}).catch(function(e){});
+}
+
+// 模擬視窗用的精簡建議摘要（與鳥面板共用同一份 AI 回應）
+function renderAdviceSummaryHTML(a){
+  if(!a) return '<div style="color:var(--text-dim);font-size:13px">無建議內容</div>';
+  var html='';
+  if(a.situation_summary) html+='<div style="background:rgba(0,119,204,0.06);border:1px solid rgba(0,119,204,0.15);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;line-height:1.6">'+escHtml(a.situation_summary)+'</div>';
+  (a.recommendations||[]).forEach(function(r,i){
+    html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.6"><b>'+(i+1)+'.〔'+escHtml(r.priority||'')+'〕'+escHtml(r.title||'')+'</b><br>'+escHtml(r.action||'')+'</div>';
+  });
+  html+='<div style="font-size:12px;color:var(--text-dim);margin-top:6px">＊點下方「完整 AI 建議」看詳細卡片與計畫書依據</div>';
+  return html;
+}
+
+// 「完整 AI 建議」：顯示模擬已產生的建議，不重新呼叫 AI（省 token）
+function showFullSimAdvice(){
+  closeAlert();
+  openBirdPanel();
+  switchBirdTab('ai', document.querySelectorAll('.bird-tab')[0]);
+  if(lastSimAdvice){
+    renderRecommendations(lastSimAdvice);
+    if(lastSimAdvice.draw && lastSimAdvice.draw.length) drawAIShapes(lastSimAdvice.draw);
+  } else {
+    generateAI(); // 沒有模擬建議時才現場產生
+  }
+}
+
 // ── AI 防護建議 ────────────────────────────────────────────────
 async function generateAI(){
   var key=getActiveKey();
@@ -1279,7 +1324,7 @@ async function generateAI(){
   var knSrc=driveKnowledge?'Google Drive 最新版':'內建版本';
   var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
   var knowledge=getKnowledge().substring(0,8000);
-  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
+  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
   try{
     var text=await callAI([{role:'user',content:prompt}],1500,0.3,false,true); // jsonMode 強制合法 JSON
     try{
@@ -1874,7 +1919,7 @@ async function sendQA() {
   var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃|標示|標出|標記|標起|標一|高亮|發亮|點亮|亮起|顯示|指出|指給|這些|那些|它們|在哪|哪裡|哪些|位置|地圖|里|怎麼走|路線|路怎麼|怎麼去|壅塞|塞車|瓶頸|人數/.test(q) ? buildEvacPlacesContext(q) : '';
   var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
-    '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
+    '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+buildSimContextText()+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
@@ -2027,6 +2072,10 @@ async function runSimulate(){
   var desc=document.getElementById('simDesc').value.trim();
   var disasters=[document.getElementById('simEQ').checked&&'地震',document.getElementById('simTY').checked&&'颱風',document.getElementById('simFlood').checked&&'水災',document.getElementById('simFire').checked&&'火災'].filter(Boolean);
   currentPlant=plant;simMode=true;
+  // 記住情境（全域→注入所有 AI 對話）＋寫入 Sheet 記錄
+  simContext={plant:plant.name,level:level,value:value.toFixed(2),disasters:disasters,desc:desc,time:new Date().toLocaleString('zh-TW',{hour12:false})};
+  lastSimAdvice=null;
+  saveSimContextToSheet(simContext);
   map.setView([plant.lat,plant.lng],plant.zoom);
   drawEPZ();drawHospitals();
   // 切換至對應電廠知識庫
@@ -2042,11 +2091,12 @@ async function runSimulate(){
   if(!key){document.getElementById('alertAI').innerHTML='<div style="color:var(--text-dim);padding:8px;font-size:13px">請輸入 API Key 以獲取 AI 建議</div>';return;}
   var disCtx=disasters.length?('\n\n【次生災害】'+disasters.join('、')+'同時發生，可能影響疏散路線。'):'';
   var descCtx=desc?('\n\n【現場狀況】'+desc):'';
-  var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
-  var prompt='你是核子事故緊急應變決策支援AI。\n\n【事故情境】\n電廠：'+plant.name+'\n等級：'+level+'\n最高輻射：'+value.toFixed(2)+' μSv/h'+disCtx+descCtx+trafficCtx+'\n\n【計畫書】\n'+getKnowledge().substring(0,2500)+'\n\n請給出3-4條具體行動建議：指出疏散路線（D/E/F/G及具體道路），若有次生災害說明替代路線，附計畫書依據（§章節號），繁體中文直接具體。';
+  var situation='電廠：'+plant.name+'\n等級：'+level+'\n最高輻射：'+value.toFixed(2)+' μSv/h'+disCtx+descCtx;
   try{
-    var text=await callAI([{role:'user',content:prompt}],800,0.2,false);
-    document.getElementById('alertAI').innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text)">'+text.replace(/\n/g,'<br>')+'</div>';
+    var advice=await generateScenarioAdvice(situation); // 完整建議只產生這一次
+    lastSimAdvice=advice;                                // 存起來供「完整 AI 建議」重用，不再重問
+    document.getElementById('alertAI').innerHTML=renderAdviceSummaryHTML(advice);
+    if(advice.draw && advice.draw.length) drawAIShapes(advice.draw);
   }catch(e){document.getElementById('alertAI').innerHTML='<div style="color:var(--red);font-size:13px">AI 呼叫失敗：'+e.message+'</div>';}
 }
 
@@ -2137,23 +2187,31 @@ async function triggerBirdAnalysis(situation, overStations) {
   var btn = document.getElementById('aiGenBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 分析情境中…';
   document.getElementById('recList').innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-dim)"><span class="spinner spinner-dark"></span><br>鳥 AI 正在分析情境並主動建議…</div>';
+  try {
+    var advice = await generateScenarioAdvice(situation);
+    renderRecommendations(advice);
+    if (advice.draw && advice.draw.length) { drawAIShapes(advice.draw); console.log('AI 繪圖：', advice.draw.length, '個圖形'); }
+  } catch(e) {
+    document.getElementById('recList').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">AI 分析失敗：' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.innerHTML = 'AI 重新產生建議';
+}
 
-  // 計算下風向村里
+// 依情境產生完整結構化建議（jsonMode + 容錯），回傳 parsed 物件。模擬視窗與鳥面板共用。
+async function generateScenarioAdvice(situation){
   var downwindInfo = '';
   if (windDir !== null) {
     var dv = getDownwindVillages(windDir);
     var dvNames = dv.slice(0,8).map(function(v){return v.name+'（'+v.zone+'）';}).join('、');
     downwindInfo = '\n\n【下風向分析（風向' + windDir + '度，下風向約' + ((windDir+180)%360) + '度方向）】\n可能受影響村里：' + dvNames;
   }
-
   var allS = stations.concat(manualData);
   var maxVal = allS.reduce(function(m,s){return Math.max(m,s.value);},0);
   var stSummary = allS.map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo2 = windDir !== null ? document.getElementById('windValue').textContent : '未知';
   var trafficCtx = tdxTrafficSummary ? ('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary) : '';
-
   var prompt = '你是核子事故緊急應變AI助手，必須主動分析情境並給出具體行動建議。\n\n' +
-    '【當前情境】\n' + situation + '\n\n' +
+    '【當前情境】\n' + situation + buildSimContextText() + '\n\n' +
     '【即時輻射數據】\n' + stSummary + '\n最高值：' + maxVal.toFixed(3) + ' μSv/h\n風向：' + windInfo2 + downwindInfo + trafficCtx + '\n\n' +
     '【應變計畫書核心知識】\n' +
     '電廠：' + currentPlant.name + '\n' +
@@ -2171,25 +2229,8 @@ async function triggerBirdAnalysis(situation, overStations) {
     '5. 在 draw 陣列中標示危險區域、下風向疏散範圍\n' +
     '輸出 JSON 格式（僅 JSON）：' +
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
-
-  try {
-    var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true); // jsonMode
-    try {
-      var parsed = parseAIJSON(text);
-      renderRecommendations(parsed);
-      if (parsed.draw && parsed.draw.length) {
-        drawAIShapes(parsed.draw);
-        console.log('AI 繪圖：', parsed.draw.length, '個圖形');
-      }
-    } catch(pe) {
-      console.warn('AI JSON 解析失敗，改顯示原文:', pe.message);
-      var plain=String(text).replace(/```json|```/g,'').trim();
-      document.getElementById('recList').innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text);white-space:pre-wrap">'+escHtml(plain)+'</div>';
-    }
-  } catch(e) {
-    document.getElementById('recList').innerHTML = '<div style="color:var(--red);font-size:13px;padding:10px">AI 分析失敗：' + e.message + '</div>';
-  }
-  btn.disabled = false; btn.innerHTML = 'AI 重新產生建議';
+  var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true);
+  return parseAIJSON(text);
 }
 
 // ── 警報 ──────────────────────────────────────────────────────

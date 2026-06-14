@@ -47,6 +47,8 @@ function doPost(e) {
       return handleAddEvacPlace(data);
     } else if (action === 'disable_evac_place') {
       return handleDisableEvacPlace(data);
+    } else if (action === 'save_sim_context') {
+      return handleSaveSimContext(data);
     }
 
     return ContentService.createTextOutput(
@@ -367,6 +369,22 @@ function handleDisableEvacPlace(data) {
   const typeLabel = { meeting: '集結點', shield: '防護站', shelter: '收容所' }[data.type] || data.type;
   const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
   sh.appendRow([typeLabel, data.name, data.lat, data.lng, now]);
+  return jsonResponse({ success: true });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 模擬情境：寫入「模擬情境」分頁（記錄使用者設定的情境）
+// ──────────────────────────────────────────────────────────────
+function handleSaveSimContext(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('模擬情境');
+  if (!sh) {
+    sh = ss.insertSheet('模擬情境');
+    sh.appendRow(['時間', '電廠', '事故等級', '最高輻射(μSv/h)', '次生災害', '現場狀況']);
+    sh.getRange(1, 1, 1, 6).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  sh.appendRow([data.time || new Date(), data.plant || '', data.level || '', data.value || '', data.disasters || '', data.desc || '']);
   return jsonResponse({ success: true });
 }
 
