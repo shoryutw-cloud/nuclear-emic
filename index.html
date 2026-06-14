@@ -418,7 +418,7 @@ var TDX_SECRET = '691c298f-d622-4861-ab51-eb1421dfdd67';
 var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyuL9Sp11DZcsRDujYpVXHUyaDWUDvsYaQxf2dBGBPRW2A5RArppt4wdnlxcZk8UvMBvQ/exec';
 // 環境輻射監測站（63站）資料來源：沿用「輻災應變資訊平台」現成可用的 GAS endpoint
 var EXT_ENV_URL = 'https://script.google.com/macros/s/AKfycbyO8TvvFgbHJF-l2WJa0hzoHnY8pT64LLgv1vaBVe0OqnSIbyhduQEfjMlyS6eXCzhW/exec';
-var THRESHOLD_WARN = 0.2, THRESHOLD_ALERT = 20;
+var THRESHOLD_WARN = 0.2, THRESHOLD_ALERT = 100; // 警戒 0.2（橘）、緊急 100（紅）
 
 // ── 全域變數 ──────────────────────────────────────────────────
 var map, baseLayers = {}, layerGroups = {};
