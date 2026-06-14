@@ -787,7 +787,7 @@ function drawEnvStationsFancy(list){
   // 渲染：菱形圓點 + 指引線 + 數值標籤
   pts.forEach(function(pt){
     var st=pt.st, val=parseFloat(st.value);
-    var col=val>=100?'#dc2626':val>=0.5?'#f97316':'#16a34a';
+    var col=val>=THRESHOLD_ALERT?'#dc2626':val>=THRESHOLD_WARN?'#f97316':'#16a34a'; // 綠<警戒(0.2) 橘≥警戒 紅≥緊急(20)，與 AI 判讀同一組閾值
     var f=fmtDose(val);
     var dotIcon=L.divIcon({className:'',html:'<div style="width:12px;height:12px;background:'+col+';border:2px solid white;transform:rotate(45deg);box-shadow:0 1px 6px rgba(0,0,0,.5)"></div>',iconSize:[12,12],iconAnchor:[6,6]});
     L.marker(pt.ll,{icon:dotIcon,interactive:false}).addTo(layerGroups.station);
