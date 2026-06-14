@@ -1559,14 +1559,17 @@ async function sendQA() {
   var qaKb = knowledgeCache[qaKey] || driveKnowledge || PLAN_KNOWLEDGE;
 
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
-  var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃爍|里|怎麼走|路線|路怎麼|怎麼去|壅塞|塞車|瓶頸|人數/.test(q) ? buildEvacPlacesContext(q) : '';
+  var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃|標示|標出|標記|標起|標一|高亮|發亮|點亮|亮起|顯示|指出|指給|這些|那些|它們|在哪|哪裡|哪些|位置|地圖|里|怎麼走|路線|路怎麼|怎麼去|壅塞|塞車|瓶頸|人數/.test(q) ? buildEvacPlacesContext(q) : '';
   var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+
     '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
     hospitalCtx+evacCtx+roadblockCtx+
-    '\n\n回答規則：若問路線/醫院，說明具體道路名稱；引用計畫書章節；繁體中文，直接回答。\n' +
-    '請以 JSON 回傳：{"text":"回答內容","draw":[]} 。若問題涉及地點、集結點、醫院、路線，draw 陣列必須加入對應 marker（地點名稱即可，座標會由系統查詢）。\n\n' + AI_DRAW_RULE +
+    '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
+    '★你能操作這張地圖，請主動使用，不要只用文字描述。請以 JSON 回傳：{"text":"回答內容","draw":[...]}。\n' +
+    '★只要回答涉及任何具體地點、集結點、里別、防護站、收容所、醫院或路線，draw 就【必須】輸出對應圖形。\n' +
+    '★當使用者說「標示／標出／標起來／顯示／指出／點亮／發亮／高亮／閃一下／在哪／給我看」某些集結點或里別時：對每個相關里別輸出一個 alert_boro（讓該里集結點發亮）；若指名個別地點則用 marker。\n' +
+    '★「這些／那些／它們」通常指對話上文剛提到的里別或集結點，請從歷史對話判斷是哪些，並全部畫出來。\n\n' + AI_DRAW_RULE +
     (routeCtx ? '\n\n' + routeCtx : '');
 
   // 建立 messages 陣列：系統提示 + 歷史對話 + 當前問題
@@ -2079,7 +2082,7 @@ var AI_DRAW_RULE = [
   '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
   '  boundary:{"type":"boundary","name":"里/區/市名稱（如安樂里、萬里區）","color":"#色","fillOpacity":0.18} ← 系統自動查詢真實行政邊界，禁止自己猜多邊形座標',
   '  alert_boro:{"type":"alert_boro","boro":"里別名稱（如野柳里）","mode":"疏散或掩蔽"} ← 在該里集結點圖示外圍加閃爍框（疏散=紅、掩蔽=紫）。座標由系統查詢，勿自填。',
-  '  ★ 當某個里別需要「疏散」或「室內掩蔽」時，draw 必須加入該里的 alert_boro，讓現場看到哪些集結點被警示。可同時對多個里各加一個 alert_boro。',
+  '  ★ 下列情況 draw 都必須加 alert_boro（可同時對多個里各加一個）：(1)某里別需「疏散」或「室內掩蔽」；(2)使用者要求「標示／顯示／指出／點亮／發亮／高亮」某些集結點或里別。前者填 mode=疏散或掩蔽，後者單純標示時 mode 留「疏散」即可。',
   '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","waypoints":[],"color":"#e85d04"} ← waypoints 填繞道地名，可空陣列',
   '  ★ 凡涉及路線/怎麼走/疏散路徑，draw 必須含 route。凡涉及村里/區域範圍，draw 必須用 boundary 而非 polygon。',
   '  ★ route 的 origin/destination 必須【一字不差】使用上方「疏散地點清單」中的完整名稱（如「中幅市民活動中心」），不可自行改寫或簡化。',
