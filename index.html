@@ -220,6 +220,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   <span class="nav-item active" onclick="openModal('monitoring')">輻射監測</span>
   <span class="nav-item" onclick="openModal('upload')">現場上傳</span>
   <span class="nav-item" onclick="openModal('layers')">圖層控制</span>
+  <span class="nav-item" onclick="openModal('dashboard');if(currentModal==='dashboard')renderDashboard()">儀表板</span>
   <span class="nav-item danger" onclick="simulateAccident()">模擬情境</span>
   <div class="nav-search">
     <input type="text" id="mapSearchInput" placeholder="搜尋地點..." onkeydown="if(event.key==='Enter')searchMap()"/>
@@ -414,6 +415,14 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
         <div class="basemap-btn" id="bm-nlscPhoto" onclick="switchBasemap('nlscPhoto')">國土空照</div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- 應變儀表板 Modal -->
+<div class="modal-overlay" id="modal-dashboard">
+  <div class="modal-panel">
+    <div class="modal-header"><h3>應變儀表板</h3><button class="modal-close" onclick="closeModal('dashboard')">×</button></div>
+    <div class="modal-body" id="dashboardBody"></div>
   </div>
 </div>
 
@@ -691,6 +700,81 @@ function closeModal(name) {
   var el = document.getElementById('modal-'+name); if(el) el.classList.remove('open');
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
   currentModal = null;
+}
+
+// 讀「收容所現況」分頁 → [{name, cap, cur}]（cap 已由 GAS 從 K 欄帶入，cur 使用者手填）
+async function loadShelterStatus(){
+  try{
+    var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+    var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('收容所現況');
+    var resp=await fetch(url); if(!resp.ok) return [];
+    var rows=parseFullCSV(await resp.text());
+    var out=[];
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i]; if(!r||!r[0]||!r[0].trim()) continue;
+      var cap=parseInt(String(r[1]||'').replace(/[^0-9]/g,''))||0;
+      var curRaw=String(r[2]||'').replace(/[^0-9]/g,'');
+      out.push({ name:r[0].trim(), cap:cap, cur:curRaw===''?null:parseInt(curRaw) });
+    }
+    return out;
+  }catch(e){ return []; }
+}
+
+// 應變儀表板：集結點/防護站看啟動數、收容所看收容率
+async function renderDashboard(){
+  var body=document.getElementById('dashboardBody'); if(!body) return;
+  body.innerHTML='<div style="text-align:center;padding:24px;color:var(--text-dim)"><span class="spinner spinner-dark"></span> 載入中…</div>';
+  if(!evacLoaded){ try{ await loadEvacuationData(); }catch(e){} }
+  var M=evacSheetData.meetings||[], S=evacSheetData.shields||[];
+  var mAct=M.filter(function(x){return x.active;}).length, sAct=S.filter(function(x){return x.active;}).length;
+  var mPct=M.length?Math.round(mAct/M.length*100):0, sPct=S.length?Math.round(sAct/S.length*100):0;
+  var shelters=await loadShelterStatus();
+
+  function card(icon,title,sub,act,total,pct){
+    return '<div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px">'+
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><span style="font-size:16px">'+icon+'</span>'+
+      '<span style="font-size:14px;font-weight:600;color:var(--navy)">'+title+'</span>'+
+      '<span style="font-size:11px;color:var(--text-dim)">'+sub+'</span></div>'+
+      '<div><span style="font-size:24px;font-weight:700;color:#16a34a">'+act+'</span>'+
+      '<span style="font-size:14px;color:var(--text-dim)"> / '+total+' 已啟動</span></div>'+
+      '<div style="height:7px;background:#eef2f6;border-radius:4px;overflow:hidden;margin-top:7px"><div style="width:'+pct+'%;height:100%;background:#16a34a"></div></div></div>';
+  }
+
+  var html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'+
+    card('🟠','集結點','無車民眾集合搭車',mAct,M.length,mPct)+
+    card('🛡️','防護站','偵檢除污',sAct,S.length,sPct)+'</div>';
+
+  html+='<div class="sec-label">收容所收容率</div>';
+  if(!shelters.length){
+    html+='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:10px 12px;font-size:13px;color:#9a3412;line-height:1.6">尚未建立「收容所現況」分頁。請到 Apps Script 執行 <b>setupShelterStatus()</b>（會自動帶入名稱與容量），再於該分頁填「目前人數」。</div>';
+  } else {
+    shelters.forEach(function(s){ s.pct=(s.cur!=null&&s.cap>0)?Math.round(s.cur/s.cap*100):null; });
+    var rep=shelters.filter(function(s){return s.pct!=null;});
+    var totCap=0,totCur=0; rep.forEach(function(s){totCap+=s.cap;totCur+=s.cur;});
+    var over=rep.filter(function(s){return s.pct>=80;}).length;
+    html+='<div style="font-size:12px;color:var(--text-dim);font-family:var(--mono);margin-bottom:8px">整體 '+(totCap?Math.round(totCur/totCap*100):0)+'%　已回報 '+rep.length+'/'+shelters.length+'　滿載/超載 '+over+'</div>';
+    shelters.sort(function(a,b){ return (b.pct==null?-1:b.pct)-(a.pct==null?-1:a.pct); });
+    shelters.forEach(function(s){
+      if(s.pct==null){
+        html+='<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">'+
+          '<span style="font-size:14px;font-weight:600">'+s.name+'</span>'+
+          '<span style="font-size:12px;color:var(--text-dim)">'+(s.cap?('容量 '+s.cap.toLocaleString()+'｜'):'')+'未回報目前人數</span></div>';
+        return;
+      }
+      var col=s.pct>100?'#dc2626':s.pct>=80?'#ea580c':'#16a34a';
+      var lab=s.pct>100?'超載':s.pct>=80?'接近滿載':'正常', w=Math.min(s.pct,100);
+      html+='<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:8px">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
+          '<span style="font-size:14px;font-weight:600">'+s.name+'</span>'+
+          '<span style="font-size:12px;color:'+col+'">'+lab+'</span></div>'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+          '<div style="flex:1;height:8px;background:#eef2f6;border-radius:4px;overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+col+'"></div></div>'+
+          '<span style="font-size:12px;font-family:var(--mono);color:var(--text-dim);min-width:112px;text-align:right">'+s.cur.toLocaleString()+' / '+s.cap.toLocaleString()+'　<b style="color:'+col+'">'+s.pct+'%</b></span>'+
+        '</div></div>';
+    });
+  }
+  html+='<div style="text-align:right;margin-top:6px"><button onclick="renderDashboard()" style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer">↻ 重新整理</button></div>';
+  body.innerHTML=html;
 }
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'&&currentModal) closeModal(currentModal);

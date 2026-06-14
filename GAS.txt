@@ -417,6 +417,48 @@ function handleSetEvacActive(data) {
   return jsonResponse({ success: true });
 }
 
+// ──────────────────────────────────────────────────────────────
+// 【手動執行】掃描各電廠分頁 K 欄「收容所(可收容NNN人)」，自動建立「收容所現況」
+// 分頁並帶入 名稱＋容量；保留已填的「目前人數」。直接在編輯器 Run 即可，免重新部署。
+// ──────────────────────────────────────────────────────────────
+function setupShelterStatus() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const tabs = ['核能一廠', '核能二廠', '核能三廠'];
+  const caps = {};
+  tabs.forEach(function(t) {
+    const sh = ss.getSheetByName(t); if (!sh) return;
+    const vals = sh.getDataRange().getValues(); if (!vals.length) return;
+    const hdr = vals[0]; let col = -1;
+    for (let i = 0; i < hdr.length; i++) { if (String(hdr[i]).indexOf('收容所') >= 0) { col = i; break; } }
+    if (col < 0) return;
+    for (let r = 1; r < vals.length; r++) {
+      const cell = String(vals[r][col] || ''); if (!cell.trim()) continue;
+      cell.split(/\d+\./).forEach(function(p) {
+        p = String(p).trim(); if (!p) return;
+        const m = p.match(/可收容\s*([0-9,]+)\s*人/);
+        const cap = m ? parseInt(m[1].replace(/,/g, '')) : '';
+        const name = p.replace(/[（(]可收容[^）)]*[）)]/g, '').replace(/[\s\r\n]+/g, '').trim();
+        if (name && !(name in caps)) caps[name] = cap;
+      });
+    }
+  });
+  let sh = ss.getSheetByName('收容所現況');
+  const existing = {};
+  if (sh) {
+    const v = sh.getDataRange().getValues();
+    for (let i = 1; i < v.length; i++) { if (v[i][0]) existing[String(v[i][0]).trim()] = v[i][2]; }
+    sh.clear();
+  } else {
+    sh = ss.insertSheet('收容所現況');
+  }
+  sh.appendRow(['收容所名稱', '容量', '目前人數', '更新時間']);
+  sh.getRange(1, 1, 1, 4).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+  sh.setFrozenRows(1);
+  const names = Object.keys(caps);
+  names.forEach(function(n) { sh.appendRow([n, caps[n], (n in existing) ? existing[n] : '', '']); });
+  SpreadsheetApp.getUi().alert('已建立/更新「收容所現況」分頁，共 ' + names.length + ' 個收容所。容量已自動帶入，請填「目前人數」欄。');
+}
+
 function jsonResponse(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
