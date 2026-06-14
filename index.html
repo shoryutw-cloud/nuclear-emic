@@ -172,6 +172,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .ctx-arrow{float:right;margin-left:16px;opacity:.5}
 .ctx-submenu{display:none;position:absolute;left:100%;top:-1px;min-width:132px;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);overflow:hidden}
 .ctx-submenu.left{left:auto;right:100%}
+.ctx-submenu.up{top:auto;bottom:-1px}
 .ctx-has-sub:hover>.ctx-submenu{display:block}
 </style>
 </head>
@@ -277,14 +278,14 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
   <!-- 右鍵選單 -->
   <div id="mapCtxMenu" class="map-ctx-menu">
-    <div class="ctx-item ctx-has-sub" id="ctxRoute" onclick="event.stopPropagation()">🧭 設定路線 <span class="ctx-arrow">▸</span>
+    <div class="ctx-item ctx-has-sub" id="ctxRoute" onclick="event.stopPropagation()" onmouseenter="_placeSubmenu(this)">🧭 設定路線 <span class="ctx-arrow">▸</span>
       <div class="ctx-submenu">
         <div class="ctx-item" onclick="doSetRouteOrigin()">📍 設為起點</div>
         <div class="ctx-item" onclick="doSetRouteDest()">🏁 設為終點</div>
       </div>
     </div>
     <div class="ctx-item" id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
-    <div class="ctx-item ctx-has-sub" id="ctxAddPlace" onclick="event.stopPropagation()">➕ 新增地點 <span class="ctx-arrow">▸</span>
+    <div class="ctx-item ctx-has-sub" id="ctxAddPlace" onclick="event.stopPropagation()" onmouseenter="_placeSubmenu(this)">➕ 新增地點 <span class="ctx-arrow">▸</span>
       <div class="ctx-submenu">
         <div class="ctx-item" onclick="doAddPlace('meeting')">🟠 集結點</div>
         <div class="ctx-item" onclick="doAddPlace('shield')">🛡️ 防護站</div>
@@ -2569,6 +2570,14 @@ function _placeCtxMenu(menu, vx, vy){
   var rightFits = (left+mw+140) <= (window.innerWidth-pad);
   var subs=menu.querySelectorAll('.ctx-submenu');
   for(var i=0;i<subs.length;i++) subs[i].classList.toggle('left', !rightFits);
+}
+// 滑進有子選單的項目時，若往下放不下就改為往上對齊展開（避免被視窗下緣截掉）
+function _placeSubmenu(item){
+  var sub=item.querySelector('.ctx-submenu');
+  if(!sub) return;
+  sub.classList.remove('up');           // 先還原再量真實高度
+  var pr=item.getBoundingClientRect();
+  if(pr.top + sub.offsetHeight > window.innerHeight - 6) sub.classList.add('up');
 }
 
 function addRoadblockMarker(id,lat,lng){
