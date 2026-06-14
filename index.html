@@ -173,6 +173,38 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 </head>
 <body>
 
+<!-- 手機裝置提示：建議改用電腦瀏覽 -->
+<div id="mobileNotice" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(8,16,30,0.72);align-items:center;justify-content:center;padding:24px;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)">
+  <div style="background:#fff;border-radius:14px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.35);overflow:hidden;text-align:center;animation:slideIn .25s ease">
+    <div style="background:var(--navy);color:#fff;padding:18px 16px">
+      <div style="font-size:34px;line-height:1">🖥️</div>
+      <div style="font-size:17px;font-weight:600;margin-top:6px">建議使用電腦瀏覽</div>
+    </div>
+    <div style="padding:18px 20px;color:var(--text);font-size:14px;line-height:1.7">
+      本系統含地圖操作、即時圖層與 AI 應變助理，<br>於<strong>桌上型電腦</strong>有最佳瀏覽體驗。<br>
+      <span style="color:var(--text-dim);font-size:13px">手機畫面較小，部分功能操作較不便。</span>
+    </div>
+    <div style="padding:0 20px 20px">
+      <button onclick="document.getElementById('mobileNotice').style.display='none';try{sessionStorage.setItem('mnDismiss','1')}catch(e){}"
+        style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:11px;font-size:14px;font-weight:600;cursor:pointer">
+        我知道了，繼續瀏覽
+      </button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  try{ if(sessionStorage.getItem('mnDismiss')==='1') return; }catch(e){}
+  var ua = navigator.userAgent || '';
+  var isMobileUA = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini|Mobile|Windows Phone/i.test(ua);
+  var isTouchNarrow = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && Math.min(window.innerWidth, window.innerHeight) < 820;
+  if(isMobileUA || isTouchNarrow){
+    var el = document.getElementById('mobileNotice');
+    if(el) el.style.display = 'flex';
+  }
+})();
+</script>
+
 <nav class="topnav">
   <div class="nav-logo">
     <span style="font-size:26px;color:var(--teal)">☢</span>
