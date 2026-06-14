@@ -300,6 +300,12 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   <div id="evacCtxMenu" class="map-ctx-menu">
     <div class="ctx-item danger" onclick="doDisablePlace()">🚫 停用此地點</div>
   </div>
+  <!-- 里別警示圖例 -->
+  <div id="boroLegend" style="display:none;position:fixed;left:12px;bottom:48px;z-index:1200;background:rgba(255,255,255,0.96);border:1px solid var(--border);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.18);padding:9px 12px;font-family:var(--sans);font-size:12px;color:var(--text);line-height:1.7">
+    <div style="font-weight:700;margin-bottom:4px">里別處置</div>
+    <div style="display:flex;align-items:center;gap:7px"><span style="display:inline-block;width:14px;height:14px;border:2px solid #dc2626;border-radius:50%;box-shadow:0 0 4px rgba(220,38,38,.6)"></span>疏散里 → 集結點閃紅框，請前往集合</div>
+    <div style="display:flex;align-items:center;gap:7px"><span style="display:inline-block;width:14px;height:14px;background:#9ca3af;border-radius:3px;filter:grayscale(1)"></span>掩蔽里 → 集結點變灰，待在室內勿前往</div>
+  </div>
 
   <div class="bottom-bar"><span id="coordsDisplay">121.66250, 25.20278</span></div>
 
@@ -1102,9 +1108,13 @@ async function fetchWind(){
 function updateWindDisplay(deg,spd,stn){
   var dirs=['北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
   var dn=dirs[Math.round(deg/22.5)%16];
-  var wv=document.getElementById('windValue');if(wv)wv.textContent=dn+' '+spd.toFixed(1)+' m/s';
+  var downName=dirs[Math.round(((deg+180)%360)/22.5)%16]; // 下風向＝污染飄去的方向
+  var wv=document.getElementById('windValue');
+  if(wv)wv.innerHTML=dn+'風 '+spd.toFixed(1)+' m/s'+
+    '<div style="font-size:11px;color:var(--red);margin-top:2px;font-family:var(--sans);font-weight:600">⚠ 污染往「'+downName+'」擴散（下風向）</div>';
   var ws=document.getElementById('windStation');if(ws)ws.textContent=stn;
-  var wa=document.getElementById('windArrow');if(wa)wa.style.transform='rotate('+deg+'deg)';
+  // 箭頭維持氣象慣例：指向風的「來向」
+  var wa=document.getElementById('windArrow');if(wa){wa.style.transform='rotate('+deg+'deg)';wa.title='箭頭指向風的來向（'+dn+'）；污染往反方向（'+downName+'）擴散';}
 }
 
 // ── TDX ───────────────────────────────────────────────────────
@@ -2437,7 +2447,7 @@ var AI_DRAW_RULE = [
   '  marker:{"type":"marker","lat":數字,"lng":數字,"label":"文字","color":"#色"}',
   '  polygon:{"type":"polygon","latlngs":[[lat,lng],...],"label":"文字","color":"#色","fillOpacity":0.12}',
   '  boundary:{"type":"boundary","name":"里/區/市名稱（如安樂里、萬里區）","color":"#色","fillOpacity":0.18} ← 系統自動查詢真實行政邊界，禁止自己猜多邊形座標',
-  '  alert_boro:{"type":"alert_boro","boro":"里別名稱（如野柳里）","mode":"疏散或掩蔽"} ← 在該里集結點圖示外圍加閃爍框（疏散=紅、掩蔽=紫）。座標由系統查詢，勿自填。',
+  '  alert_boro:{"type":"alert_boro","boro":"里別名稱（如野柳里）","mode":"疏散或掩蔽"} ← 疏散里：集結點閃紅框（前往集合）；掩蔽里：集結點變灰（待在室內勿前往）。座標由系統查詢，勿自填。',
   '  ★ 下列情況 draw 都必須加 alert_boro（可同時對多個里各加一個）：(1)某里別需「疏散」或「室內掩蔽」；(2)使用者要求「標示／顯示／指出／點亮／發亮／高亮」某些集結點或里別。前者填 mode=疏散或掩蔽，後者單純標示時 mode 留「疏散」即可。',
   '  route:{"type":"route","origin":"起點名稱","destination":"終點名稱","waypoints":[],"color":"#e85d04"} ← waypoints 填繞道地名，可空陣列',
   '  ★ 凡涉及路線/怎麼走/疏散路徑，draw 必須含 route。凡涉及村里/區域範圍，draw 必須用 boundary 而非 polygon。',
@@ -2472,6 +2482,8 @@ async function fetchBoundaryFromOverpass(name) {
 function drawAIShapes(items) {
   if (!map || !items || !items.length) return;
   layerGroups.aiDraw.clearLayers();
+  // 整批 alert_boro 只清一次，讓「疏散＋掩蔽」多個里能並存（不再互相清掉）
+  if (items.some(function(it){ return it.type === 'alert_boro'; })) clearBoroAlerts();
   items.forEach(function(item) {
     try {
       var color = item.color || '#1a56db';
@@ -2525,9 +2537,33 @@ function clearAIShapes() {
   clearBoroAlerts();
 }
 
-// 清除里別閃爍警示框
+// 被調暗的集結點 marker（掩蔽里用），供清除時還原
+var _dimmedMarkers = [];
+
+// 清除里別警示：移除閃爍框 + 還原調暗的集結點 + 收起圖例
 function clearBoroAlerts() {
   if (layerGroups.boroAlert) layerGroups.boroAlert.clearLayers();
+  _dimmedMarkers.forEach(function(mk){ if (mk && mk._icon) mk._icon.style.filter = ''; });
+  _dimmedMarkers = [];
+  var lg = document.getElementById('boroLegend'); if (lg) lg.style.display = 'none';
+}
+
+// 顯示圖例（畫了任何里別警示時）
+function showBoroLegend() {
+  var lg = document.getElementById('boroLegend'); if (lg) lg.style.display = 'block';
+}
+
+// 把某集結點圖示調暗變灰（掩蔽里：待在原地、勿前往集結點）
+function _dimMeetingMarker(m) {
+  var key = m._layerKey;
+  if (key && layerGroups[key] && !map.hasLayer(layerGroups[key])) {
+    map.addLayer(layerGroups[key]);
+    var el = document.getElementById('evac-' + key); if (el) el.classList.add('on');
+  }
+  if (m._marker && m._marker._icon) {
+    m._marker._icon.style.filter = 'grayscale(1) opacity(0.4)';
+    _dimmedMarkers.push(m._marker);
+  }
 }
 
 // 里別名稱正規化（去掉 *、空白、結尾「里」），供模糊比對
@@ -2538,8 +2574,8 @@ function normBoro(s) {
 // AI 指令：在指定里別的集結點圖示外圍加閃爍框（mode:'疏散'紅 / '掩蔽'紫）
 // 對一組集結點加閃爍框（疏散紅／掩蔽紫）+ 開對應圖層 + 鏡頭聚焦（共用底層）
 function _alertMeetings(list, mode) {
-  clearBoroAlerts();
   if (!list.length) return { count: 0, names: [] };
+  showBoroLegend();
   var isShelter = /掩蔽|室內|留在/.test(mode || '');
   var col  = isShelter ? '#8b5cf6' : '#dc2626';
   var glow = isShelter ? 'rgba(139,92,246,0.5)' : 'rgba(220,38,38,0.5)';
@@ -2578,13 +2614,23 @@ async function highlightBoroMeetings(boroName, mode) {
     return b && (b.indexOf(target) >= 0 || target.indexOf(b) >= 0);
   });
   if (!matched.length) { console.warn('里別警示：找不到集結點', boroName); return { count: 0, names: [] }; }
-  var r = _alertMeetings(matched, mode);
-  console.log('里別警示', boroName, '→', r.count, '個集結點');
+  var isShelter = /掩蔽|室內|留在/.test(mode || '');
+  if (isShelter) {
+    // 掩蔽里：集結點圖示「調暗變灰」表示待在原地、勿前往（不閃框）
+    matched.forEach(_dimMeetingMarker);
+    showBoroLegend();
+    console.log('里別[掩蔽]', boroName, '→ 集結點調暗', matched.length, '個');
+    return { count: matched.length, names: matched.map(function(m){ return m.name; }) };
+  }
+  // 疏散里：集結點閃紅框（請前往集合）
+  var r = _alertMeetings(matched, '疏散');
+  console.log('里別[疏散]', boroName, '→', r.count, '個集結點');
   return r;
 }
 
 // 程式 fast-path：對距目前電廠 maxKm 內的所有集結點加閃爍框（maxKm=0 表全部）
 async function highlightMeetingsInRange(maxKm, mode) {
+  clearBoroAlerts();   // 這是全新「標示集結點」指令，先清掉舊的
   if (!evacSheetData.meetings.length) { try { await loadEvacuationData(); } catch (e) {} }
   var matched = evacSheetData.meetings.filter(function(m) {
     if (!m.lat || !m.lng) return false;
