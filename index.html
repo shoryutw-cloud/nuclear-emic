@@ -76,10 +76,10 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
 #birdPanel{display:none;position:absolute;left:0;top:0;width:520px;height:74vh;min-width:360px;min-height:360px;max-width:calc(100vw - 120px);max-height:calc(100vh - 90px);background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.25);z-index:2400;flex-direction:column;overflow:auto;pointer-events:auto;resize:both;transform-origin:0 0}
 #birdPanel.open{display:flex}
-.bird-header{background:var(--navy);padding:9px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.bird-header{background:var(--navy);padding:9px 14px;display:flex;align-items:center;gap:8px;flex-shrink:0;position:relative}
 .bird-header img{width:30px;height:30px;object-fit:contain}
 .bird-header span{color:#fff;font-size:21px;font-weight:600;flex:1;text-align:center}
-.bird-close{background:none;border:none;color:rgba(255,255,255,0.7);font-size:20px;cursor:pointer;line-height:1}
+.bird-close{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;color:rgba(255,255,255,0.7);font-size:20px;cursor:pointer;line-height:1}
 .bird-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
 .bird-tab{flex:1;padding:10px;text-align:center;font-size:14px;cursor:pointer;color:var(--text-dim);border-bottom:2px solid transparent;transition:all 0.2s}
 .bird-tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:500}
@@ -258,8 +258,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
   <!-- 鳥 AI 面板 -->
   <div id="birdPanel">
     <div class="bird-header">
-      <span style="font-size:18px">🕊</span>
-      <span style="text-align:center;display:block">Jarvis</span>
+      <span>Jarvis</span>
       <button class="bird-close" onclick="closeBirdPanel()">×</button>
     </div>
     <div class="bird-tabs">
