@@ -349,6 +349,8 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
         <div class="basemap-btn active" id="bm-street"  onclick="switchBasemap('street')">街道</div>
         <div class="basemap-btn" id="bm-imagery" onclick="switchBasemap('imagery')">衛星</div>
         <div class="basemap-btn" id="bm-topo"    onclick="switchBasemap('topo')">地形</div>
+        <div class="basemap-btn" id="bm-nlsc"    onclick="switchBasemap('nlsc')">國土電子圖</div>
+        <div class="basemap-btn" id="bm-nlscPhoto" onclick="switchBasemap('nlscPhoto')">國土空照</div>
       </div>
     </div>
   </div>
@@ -806,11 +808,13 @@ function toggleLayerPanel(name,ltId){
 }
 var currentBase='street';
 function switchBasemap(mode){
-  ['street','imagery','topo'].forEach(function(m){if(baseLayers[m]&&map.hasLayer(baseLayers[m]))map.removeLayer(baseLayers[m]);});
+  ['street','imagery','topo','nlsc','nlscPhoto'].forEach(function(m){if(baseLayers[m]&&map.hasLayer(baseLayers[m]))map.removeLayer(baseLayers[m]);});
   if(baseLayers.labels&&map.hasLayer(baseLayers.labels))map.removeLayer(baseLayers.labels);
   document.querySelectorAll('.basemap-btn').forEach(function(b){b.classList.remove('active');});
   if(mode==='imagery'){baseLayers.imagery.addTo(map);baseLayers.labels.addTo(map);}
   else if(mode==='topo'){baseLayers.topo.addTo(map);}
+  else if(mode==='nlsc'){baseLayers.nlsc.addTo(map);}
+  else if(mode==='nlscPhoto'){baseLayers.nlscPhoto.addTo(map);baseLayers.labels.addTo(map);}
   else{baseLayers.street.addTo(map);}
   currentBase=mode;
   var btn=document.getElementById('bm-'+mode);if(btn)btn.classList.add('active');
@@ -823,6 +827,9 @@ function initMap(){
   baseLayers.imagery =L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19});
   baseLayers.labels  =L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:19,opacity:0.9});
   baseLayers.topo    =L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{attribution:'© CartoDB',maxZoom:19,subdomains:'abcd'});
+  // 國土測繪中心通用版電子地圖／正射影像（OGC WMTS，免金鑰；台灣地名門牌較準）
+  baseLayers.nlsc     =L.tileLayer('https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}',{attribution:'© 國土測繪中心',maxZoom:20});
+  baseLayers.nlscPhoto=L.tileLayer('https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}',{attribution:'© 國土測繪中心',maxZoom:20});
   baseLayers.street.addTo(map);
   layerGroups.epz     =L.layerGroup().addTo(map);
   layerGroups.aiDraw  =L.layerGroup().addTo(map); // AI 繪圖圖層
