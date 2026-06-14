@@ -41,6 +41,8 @@ function doPost(e) {
       return handleDeleteRoadblock(data);
     } else if (action === 'update_roadblock_name') {
       return handleUpdateRoadblockName(data);
+    } else if (action === 'save_stations') {
+      return handleSaveStations(data);
     }
 
     return ContentService.createTextOutput(
@@ -100,6 +102,36 @@ function handleEnvMonitor(p) {
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ──────────────────────────────────────────────────────────────
+// 前端把抓到的監測站數值寫入「輻射監測數據」分頁（前端 POST action=save_stations）
+// data.stations = [{code,name,county,lat,lng,value}, ...]
+// ──────────────────────────────────────────────────────────────
+function handleSaveStations(data) {
+  try {
+    var list = data.stations || [];
+    if (!list.length) return jsonResponse({ success: false, error: '無測站資料' });
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var sheet = getOrCreateSheet(ss, DATA_SHEET);
+    if (sheet.getLastRow() === 0) setupHeaders(sheet);
+    var notes = getExistingNotes(sheet);
+    var now = new Date();
+    var rows = list.map(function (s) {
+      var val = parseFloat(s.value);
+      var status = isNaN(val) ? '' : (val >= THRESHOLD_ALERT ? '🔴 緊急' : val >= THRESHOLD_WARN ? '🟡 警戒' : '正常');
+      var code = s.code || s.name || '';
+      return [code, s.name || '', s.county || '', s.lat, s.lng, isNaN(val) ? '' : val, status, now, notes[code] || ''];
+    });
+    var last = sheet.getLastRow();
+    if (last > 1) sheet.getRange(2, 1, last - 1, 9).clearContent();
+    sheet.getRange(2, 1, rows.length, 9).setValues(rows);
+    colorByStatus(sheet, rows.length);
+    updateConfig(ss);
+    return jsonResponse({ success: true, count: rows.length });
+  } catch (err) {
+    return jsonResponse({ success: false, error: err.message });
+  }
 }
 
 // ──────────────────────────────────────────────────────────────

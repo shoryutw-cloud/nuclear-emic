@@ -416,6 +416,8 @@ var knowledgeCache = {}; // 已載入的知識庫快取
 var TDX_ID     = 'shoryu.tw-2ea8aaf0-425b-402b';
 var TDX_SECRET = '691c298f-d622-4861-ab51-eb1421dfdd67';
 var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyuL9Sp11DZcsRDujYpVXHUyaDWUDvsYaQxf2dBGBPRW2A5RArppt4wdnlxcZk8UvMBvQ/exec';
+// 環境輻射監測站（63站）資料來源：沿用「輻災應變資訊平台」現成可用的 GAS endpoint
+var EXT_ENV_URL = 'https://script.google.com/macros/s/AKfycbyO8TvvFgbHJF-l2WJa0hzoHnY8pT64LLgv1vaBVe0OqnSIbyhduQEfjMlyS6eXCzhW/exec';
 var THRESHOLD_WARN = 0.2, THRESHOLD_ALERT = 20;
 
 // ── 全域變數 ──────────────────────────────────────────────────
@@ -672,27 +674,130 @@ function toggleStations(btn){
   }
 }
 
-// 呼叫自己的 GAS 抓原能會 63 站 CSV（GAS 同時寫入 Sheet）→ 畫圖 + AI 判讀異常
+// 點擊測站按鈕 → 抓 63 站即時數值（外部現成 endpoint 優先，失敗退回自己 GAS）→ 菱形顯示 + 寫表 + AI 判讀
 function refreshEnvStations(){
   var sb=document.getElementById('sheetsStatus');
-  if(sb){ sb.textContent='正在讀取原能會即時監測站…'; sb.style.background='#f0f9ff'; sb.style.color='#0369a1'; }
-  jsonpGet(WEBAPP_URL + '?action=envMonitor', function(data){
-    if(!data || !data.stations || !data.stations.length){
-      if(sb){ sb.textContent='⚠ 監測站讀取失敗（GAS 未部署或無回應）'; sb.style.background='#fee2e2'; sb.style.color='#dc2626'; }
-      console.warn('envMonitor 回傳空或失敗', data);
-      return;
-    }
-    var arr = data.stations.filter(function(s){
-      return !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng)) && !isNaN(parseFloat(s.value));
-    }).map(function(s){
-      return {code:s.code,name:s.name,county:s.county,lat:parseFloat(s.lat),lng:parseFloat(s.lng),value:parseFloat(s.value),status:s.status||'正常',type:'sheets'};
-    });
-    stations = arr;
-    drawStations(stations); renderStationList(stations);
-    checkThresholds(stations);   // ← 偵測異常 → 查知識庫 → 鳥 AI 主動跳出（既有機制）
-    if(sb){ sb.textContent='原能會監測站 '+arr.length+' 站（'+new Date().toLocaleTimeString('zh-TW')+' 更新，來源 '+(data.source||'')+'）'; }
-    console.log('envMonitor:', arr.length, '站，來源', data.source);
+  if(sb){ sb.textContent='正在讀取環境輻射監測站…'; sb.style.background='#f0f9ff'; sb.style.color='#0369a1'; }
+  jsonpGet(EXT_ENV_URL + '?action=envMonitor', function(data){
+    if(data && data.stations && data.stations.length){ handleEnvData(data, '即時'); return; }
+    // 退回自己的 GAS（抓官方 CSV，可能僅備援站）
+    jsonpGet(WEBAPP_URL + '?action=envMonitor', function(d2){
+      if(d2 && d2.stations && d2.stations.length){ handleEnvData(d2, d2.source||'自有GAS'); }
+      else if(sb){ sb.textContent='⚠ 監測站讀取失敗（兩個來源都無回應）'; sb.style.background='#fee2e2'; sb.style.color='#dc2626'; }
+    }, 25000);
   }, 25000);
+}
+
+function handleEnvData(data, srcLabel){
+  var sb=document.getElementById('sheetsStatus');
+  var arr = data.stations.filter(function(s){
+    return !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng)) && !isNaN(parseFloat(s.value));
+  }).map(function(s){
+    return { code:s.code||s.name||'', name:s.name||s.code||'', county:s.county||'',
+             nameEn:s.nameEn||'', time:s.time||'',
+             lat:parseFloat(s.lat), lng:parseFloat(s.lng), value:parseFloat(s.value),
+             status:s.status||'', type:'sheets' };
+  });
+  if(!arr.length){ if(sb){sb.textContent='⚠ 監測站回傳 0 筆';} return; }
+  stations = arr;
+  drawEnvStationsFancy(arr);    // 菱形 + 指引線 + 數值標籤
+  renderStationList(arr);
+  checkThresholds(arr);         // ← 偵測異常 → 查知識庫 → 鳥 AI 主動跳出（既有機制）
+  saveStationsToSheet(arr);     // 寫進自己的「輻射監測數據」分頁
+  if(sb){ sb.textContent='環境輻射監測站 '+arr.length+' 站（'+new Date().toLocaleTimeString('zh-TW')+' 更新）'; sb.style.background='#f0f9ff'; sb.style.color='#0369a1'; }
+  console.log('監測站:', arr.length, '站，來源', srcLabel);
+}
+
+// 把監測站數值寫回自己的 Sheet（透過自己的 GAS）
+function saveStationsToSheet(arr){
+  if(!WEBAPP_URL) return;
+  fetch(WEBAPP_URL, {
+    method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({ action:'save_stations', stations: arr.map(function(s){
+      return { code:s.code, name:s.name, county:s.county, lat:s.lat, lng:s.lng, value:s.value };
+    }) })
+  }).catch(function(e){ console.warn('save_stations 失敗', e.message); });
+}
+
+// 監測站顯示：綠色菱形 + 虛線指引線 + 白底數值標籤（防重疊扇形避讓，移植自輻災應變平台）
+function fmtDose(v){ if(isNaN(v)) return {val:'—',unit:''}; return {val:(v>=10?v.toFixed(1):v.toFixed(3)), unit:'μSv/h'}; }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function drawEnvStationsFancy(list){
+  if(!map) return;
+  layerGroups.station.clearLayers();
+  var LW=140, LH=34, R_MIN=60, R_STEP=LH+14, R_MAX=220, CLUSTER_R=120;
+  var pts = list.filter(function(st){
+    return !isNaN(parseFloat(st.lat))&&!isNaN(parseFloat(st.lng))&&!isNaN(parseFloat(st.value));
+  }).map(function(st){
+    var ll=L.latLng(parseFloat(st.lat),parseFloat(st.lng));
+    return {st:st, ll:ll, px:map.latLngToLayerPoint(ll)};
+  });
+  // 群聚
+  var assigned=pts.map(function(){return -1;}), groups=[];
+  pts.forEach(function(pt,i){
+    if(assigned[i]>=0) return;
+    var grp=[i]; assigned[i]=groups.length;
+    pts.forEach(function(pt2,j){
+      if(assigned[j]>=0) return;
+      var dx=pt.px.x-pt2.px.x, dy=pt.px.y-pt2.px.y;
+      if(Math.sqrt(dx*dx+dy*dy)<CLUSTER_R){ grp.push(j); assigned[j]=groups.length; }
+    });
+    groups.push(grp);
+  });
+  // 扇形角度分配（避免指引線交叉）
+  groups.forEach(function(grp){
+    var n=grp.length, cx=0, cy=0;
+    grp.forEach(function(i){ cx+=pts[i].px.x; cy+=pts[i].px.y; });
+    cx/=n; cy/=n;
+    if(n===1){ pts[grp[0]].fanAngle=-45; }
+    else{
+      grp.sort(function(a,b){ return parseFloat(pts[b].st.value)-parseFloat(pts[a].st.value); });
+      var angles=grp.map(function(i){
+        var dx=pts[i].px.x-cx, dy=pts[i].px.y-cy;
+        if(Math.abs(dx)<1&&Math.abs(dy)<1) return 0;
+        return Math.atan2(dy,dx)*180/Math.PI;
+      });
+      var MIN_GAP=35;
+      for(var pass=0;pass<3;pass++){
+        for(var ai=0;ai<angles.length-1;ai++){
+          var diff=angles[ai+1]-angles[ai];
+          if(Math.abs(diff)<MIN_GAP){ var push=(MIN_GAP-Math.abs(diff))/2; angles[ai]-=push; angles[ai+1]+=push; }
+        }
+      }
+      grp.forEach(function(i,gi){ pts[i].fanAngle=angles[gi]; });
+    }
+  });
+  // 碰撞避讓：沿扇形角度往外找不重疊位置放標籤
+  function overlaps(a,b){ var PAD=16; return !(a.x+a.w+PAD<b.x||b.x+b.w+PAD<a.x||a.y+a.h+PAD<b.y||b.y+b.h+PAD<a.y); }
+  var placed=[];
+  pts.forEach(function(pt){
+    var rad=pt.fanAngle*Math.PI/180, found=false;
+    for(var r=R_MIN;r<=R_MAX;r+=R_STEP){
+      var lx=pt.px.x+r*Math.cos(rad), ly=pt.px.y+r*Math.sin(rad);
+      var rect={x:lx-LW/2,y:ly-LH/2,w:LW,h:LH};
+      if(!placed.some(function(p){return overlaps(rect,p);})){ placed.push(rect); pt.offLL=map.layerPointToLatLng(L.point(lx,ly)); found=true; break; }
+    }
+    if(!found){
+      var lx2=pt.px.x+R_MAX*Math.cos(rad), ly2=pt.px.y+R_MAX*Math.sin(rad);
+      var ms=map.getSize();
+      lx2=Math.max(LW/2+8,Math.min(ms.x-LW/2-8,lx2)); ly2=Math.max(LH/2+8,Math.min(ms.y-LH/2-8,ly2));
+      placed.push({x:lx2-LW/2,y:ly2-LH/2,w:LW,h:LH}); pt.offLL=map.layerPointToLatLng(L.point(lx2,ly2));
+    }
+  });
+  // 渲染：菱形圓點 + 指引線 + 數值標籤
+  pts.forEach(function(pt){
+    var st=pt.st, val=parseFloat(st.value);
+    var col=val>=100?'#dc2626':val>=0.5?'#f97316':'#16a34a';
+    var f=fmtDose(val);
+    var dotIcon=L.divIcon({className:'',html:'<div style="width:12px;height:12px;background:'+col+';border:2px solid white;transform:rotate(45deg);box-shadow:0 1px 6px rgba(0,0,0,.5)"></div>',iconSize:[12,12],iconAnchor:[6,6]});
+    L.marker(pt.ll,{icon:dotIcon,interactive:false}).addTo(layerGroups.station);
+    L.polyline([pt.ll,pt.offLL],{color:col,weight:2,opacity:0.75,dashArray:'5 3'}).addTo(layerGroups.station);
+    var labelIcon=L.divIcon({className:'',
+      html:'<div style="background:white;border-left:4px solid '+col+';border-radius:5px;padding:4px 10px 4px 8px;box-shadow:0 2px 8px rgba(0,0,0,.18);white-space:nowrap;display:inline-flex;align-items:baseline;gap:3px;"><span style="font-size:13px;font-weight:800;color:#1e2a3a;font-family:ui-monospace,monospace">'+f.val+'</span><span style="font-size:10px;color:#6b7a92;font-family:ui-monospace,monospace">'+f.unit+'</span></div>',
+      iconAnchor:[LW/2,LH/2]});
+    L.marker(pt.offLL,{icon:labelIcon}).addTo(layerGroups.station)
+      .bindPopup('<div style="min-width:150px"><div style="font-size:13px;font-weight:700;margin-bottom:3px">◆ '+escHtml(st.name)+'</div>'+(st.nameEn?'<div style="font-size:11px;color:#6b7a92;margin-bottom:6px">'+escHtml(st.nameEn)+'</div>':'')+'<div style="font-size:20px;font-weight:800;color:'+col+'">'+f.val+' <span style="font-size:11px;color:#6b7a92">'+f.unit+'</span></div>'+(st.time?'<div style="font-size:11px;color:#94a3b8;margin-top:4px">更新：'+escHtml(st.time)+'</div>':'')+'<div style="font-size:10px;color:#cbd5e1;margin-top:2px">官方環境輻射監測站</div></div>');
+  });
 }
 function toggleLayerPanel(name,ltId){
   var lg=layerGroups[name];var el=document.getElementById(ltId);if(!lg||!el)return;
@@ -737,6 +842,8 @@ function initMap(){
     L.DomEvent.preventDefault(e.originalEvent);
     showMapCtxMenu(e.containerPoint,e.latlng,null);
   });
+  // 縮放後重算監測站標籤位置（像素佈局會變）
+  map.on('zoomend',function(){ if(stationLayerOn && stations && stations.length) drawEnvStationsFancy(stations); });
   document.addEventListener('click',hideMapCtxMenu);
   drawEPZ();drawHospitals();drawNuclearPlants();
   var mapEl=document.getElementById('map');
@@ -883,7 +990,7 @@ async function fetchFromSheets(){
       data.push({code:cols[0],name:cols[1],county:cols[2],lat:lat,lng:lng,value:value,status:cols[6]||'正常',type:'sheets'});
     });
     if(data.length>0){
-      stations=data;drawStations(stations);renderStationList(stations);checkThresholds(stations);
+      stations=data;drawEnvStationsFancy(stations);renderStationList(stations);checkThresholds(stations);
       var sb=document.getElementById('sheetsStatus');if(sb)sb.textContent='資料來源：Google Sheets（'+new Date().toLocaleTimeString('zh-TW')+' 更新，'+data.length+' 站）';
     }
   }catch(e){
