@@ -169,6 +169,8 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .ctx-item:hover{background:#f0f4f8}
 .ctx-item.danger{color:var(--red)}
 .ctx-item.danger:hover{background:#fef2f2}
+.ctx-sub{padding-left:26px;font-size:12px;background:#f7fafd;border-top:1px solid #eef3f8}
+.ctx-sep{height:1px;background:#e3eaf2;margin:0}
 </style>
 </head>
 <body>
@@ -276,7 +278,18 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
     <div class="ctx-item" id="ctxSetOrigin" onclick="doSetRouteOrigin()">📍 設為起點</div>
     <div class="ctx-item" id="ctxSetDest"   onclick="doSetRouteDest()">🏁 設為終點</div>
     <div class="ctx-item"  id="ctxAddBlock" onclick="doAddRoadblock()">🚧 設定路障</div>
+    <div class="ctx-sep" id="ctxAddSep"></div>
+    <div class="ctx-item" id="ctxAddPlace" onclick="toggleAddPlaceSub(event)">➕ 新增地點 ▾</div>
+    <div id="ctxAddPlaceSub" style="display:none">
+      <div class="ctx-item ctx-sub" onclick="doAddPlace('meeting')">🟠 集結點</div>
+      <div class="ctx-item ctx-sub" onclick="doAddPlace('shield')">🛡️ 防護站</div>
+      <div class="ctx-item ctx-sub" onclick="doAddPlace('shelter')">🏠 收容所</div>
+    </div>
     <div class="ctx-item danger" id="ctxDelBlock" onclick="doDeleteRoadblock()">🗑 刪除路障</div>
+  </div>
+  <!-- 集結點/防護站/收容所 marker 右鍵選單：停用 -->
+  <div id="evacCtxMenu" class="map-ctx-menu">
+    <div class="ctx-item danger" onclick="doDisablePlace()">🚫 停用此地點</div>
   </div>
 
   <div class="bottom-bar"><span id="coordsDisplay">121.66250, 25.20278</span></div>
@@ -2529,13 +2542,24 @@ function showMapCtxMenu(containerPt, latlng, existingData){
   document.getElementById('ctxSetOrigin').style.display=existingData?'none':'block';
   document.getElementById('ctxSetDest').style.display=existingData?'none':'block';
   document.getElementById('ctxAddBlock').style.display=existingData?'none':'block';
+  document.getElementById('ctxAddSep').style.display=existingData?'none':'block';
+  document.getElementById('ctxAddPlace').style.display=existingData?'none':'block';
+  document.getElementById('ctxAddPlaceSub').style.display='none'; // 每次重開都收合
   document.getElementById('ctxDelBlock').style.display=existingData?'block':'none';
   _ctxLatLng=latlng;
   _ctxPendingMarker=existingData?existingData.marker:null;
   _ctxPendingId    =existingData?existingData.id:null;
   menu.classList.add('show');
 }
-function hideMapCtxMenu(){document.getElementById('mapCtxMenu').classList.remove('show');}
+function hideMapCtxMenu(){
+  document.getElementById('mapCtxMenu').classList.remove('show');
+  var em=document.getElementById('evacCtxMenu'); if(em) em.classList.remove('show');
+}
+function toggleAddPlaceSub(ev){
+  if(ev){ ev.stopPropagation(); } // 別讓 document click 把整個選單關掉
+  var sub=document.getElementById('ctxAddPlaceSub');
+  sub.style.display = sub.style.display==='none' ? 'block' : 'none';
+}
 
 function addRoadblockMarker(id,lat,lng){
   // 畫 150m 判定圓（與路障偵測門檻一致）
@@ -2647,6 +2671,134 @@ function doDeleteRoadblock(){
     else showRoadblockToast('✗ 刪除失敗：'+(d&&d.error||JSON.stringify(d)),false);
   })
   .catch(function(e){showRoadblockToast('✗ 連線失敗：'+e.message,false);});
+}
+
+// ── 新增 / 停用 集結點·防護站·收容所（右鍵，寫入 Sheet）──────────
+var EVAC_ICONS=null;
+function getEvacIcons(){
+  if(!EVAC_ICONS) EVAC_ICONS={
+    meeting:L.icon({iconUrl:'Meetingpoint.png',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]}),
+    shield: L.icon({iconUrl:'shield.png',      iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]}),
+    shelter:L.icon({iconUrl:'shelter.png',     iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]})
+  };
+  return EVAC_ICONS;
+}
+var EVAC_TYPE_LABEL={meeting:'集結點',shield:'防護站',shelter:'避難收容所'};
+
+// 建立 evac marker（含彈窗 + 右鍵停用），加入對應圖層（不強制顯示圖層）
+function attachEvacMarker(item,type,key){
+  var lk=type+key;
+  if(!layerGroups[lk]) layerGroups[lk]=L.layerGroup(); // 核三廠等未預建圖層時補建
+  var lg=layerGroups[lk];
+  var typeLabel=EVAC_TYPE_LABEL[type]||type;
+  var pop='<div class="popup-title">'+item.name+'</div>'+
+    '<div class="popup-meta">'+typeLabel+(item.boro?' · '+item.boro:'')+'</div>';
+  if(item.shieldName) pop+='<div class="popup-meta" style="color:#1d4ed8">防護站：'+item.shieldName+'</div>';
+  if(item.shelterNames&&item.shelterNames.length) pop+='<div class="popup-meta" style="color:#047857">收容所：'+item.shelterNames.join('、')+'</div>';
+  pop+='<div class="popup-meta" style="color:#94a3b8;font-size:11px">右鍵可停用</div>';
+  var m=L.marker([item.lat,item.lng],{icon:getEvacIcons()[type]}).addTo(lg).bindPopup(pop);
+  item._marker=m; item._layerKey=lk; item._evacType=type; item._evacKey=key;
+  m.on('contextmenu',function(e){
+    L.DomEvent.preventDefault(e.originalEvent);
+    L.DomEvent.stopPropagation(e);
+    showEvacCtxMenu(e.containerPoint,item);
+  });
+  return m;
+}
+
+// 確保某 evac 圖層顯示在地圖上（新增地點後要立刻看得到）
+function showEvacLayer(type,key){
+  var lk=type+key;
+  if(layerGroups[lk] && !map.hasLayer(layerGroups[lk])){
+    map.addLayer(layerGroups[lk]);
+    var el=document.getElementById('evac-'+lk); if(el) el.classList.add('on');
+  }
+}
+
+// 目前電廠對應的 Sheet 分頁與圖層 key
+function currentPlantEvac(){
+  var pk=getPlantKey(currentPlant);
+  if(pk==='nuclear1') return {key:'1',tab:'核能一廠'};
+  if(pk==='nuclear3') return {key:'3',tab:'核能三廠'};
+  return {key:'2',tab:'核能二廠'};
+}
+
+// 反向地理編碼：座標 → 縣市/區/里 + 附近地名（Nominatim，免金鑰）
+async function reverseGeocode(lat,lng){
+  try{
+    var url='https://nominatim.openstreetmap.org/reverse?format=json&accept-language=zh-TW&zoom=18&lat='+lat+'&lon='+lng;
+    var r=await fetch(url); var j=await r.json(); var a=j.address||{};
+    var city=a.city||a.county||a.state||'';
+    var dist=a.city_district||a.suburb||a.town||a.district||'';
+    var boro=a.village||a.neighbourhood||a.quarter||a.hamlet||'';
+    var name=(j.name||'').trim() || (j.display_name||'').split(',')[0].trim();
+    return {city:city,dist:dist,boro:boro,name:name};
+  }catch(e){ return {city:'',dist:'',boro:'',name:''}; }
+}
+
+// 新增地點：座標自動帶入、縣市區里反查、名稱跳輸入框（預填反查地名）
+async function doAddPlace(type){
+  hideMapCtxMenu();
+  if(!_ctxLatLng) return;
+  var lat=_ctxLatLng.lat, lng=_ctxLatLng.lng;
+  var typeLabel={meeting:'集結點',shield:'防護站',shelter:'收容所'}[type];
+  showRoadblockToast('查詢地點資訊中…',true);
+  var info=await reverseGeocode(lat,lng);
+  var defName=info.name || (typeLabel+'（臨時）');
+  var name=prompt('新增'+typeLabel+'\n座標：'+lat.toFixed(5)+', '+lng.toFixed(5)+((info.city||info.dist)?('\n位置：'+info.city+info.dist+info.boro):'')+'\n\n名稱（可修改）：', defName);
+  if(name===null) return;                 // 取消
+  name=(name||'').trim()||defName;
+  var ev=currentPlantEvac();
+  // 1) 立刻畫上地圖並顯示圖層
+  var item={name:name,lat:lat,lng:lng,city:info.city,dist:info.dist,boro:info.boro};
+  attachEvacMarker(item,type,ev.key);
+  showEvacLayer(type,ev.key);
+  // 2) 存進全域資料（AI / 搜尋 / 閃爍框立即可用）
+  if(type==='meeting') evacSheetData.meetings.push({name:name,city:info.city,dist:info.dist,boro:info.boro,lat:lat,lng:lng,shieldName:'',shelterNames:[],boroTotal:''});
+  else if(type==='shield') evacSheetData.shields.push({name:name,lat:lat,lng:lng});
+  else evacSheetData.shelters.push({name:name,lat:lat,lng:lng});
+  // 3) 寫入 Sheet
+  fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({
+    action:'add_evac_place',plantTab:ev.tab,type:type,name:name,
+    lat:lat,lng:lng,city:info.city||'',dist:info.dist||'',boro:info.boro||''
+  })}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.success) showRoadblockToast('✓ 已新增'+typeLabel+'並寫入 Sheet：'+name,true);
+    else showRoadblockToast('✗ Sheet 寫入失敗：'+(d&&d.error||'未知')+'（地圖已顯示）',false);
+  }).catch(function(e){ showRoadblockToast('✗ 連線失敗（地圖已顯示，未寫入 Sheet）',false); });
+}
+
+var _evacCtxItem=null;
+function showEvacCtxMenu(containerPt,item){
+  var menu=document.getElementById('evacCtxMenu');
+  var rect=document.getElementById('map').getBoundingClientRect();
+  menu.style.left=(rect.left+containerPt.x+2)+'px';
+  menu.style.top =(rect.top +containerPt.y+2)+'px';
+  _evacCtxItem=item;
+  document.getElementById('mapCtxMenu').classList.remove('show');
+  menu.classList.add('show');
+}
+function doDisablePlace(){
+  var item=_evacCtxItem;
+  document.getElementById('evacCtxMenu').classList.remove('show');
+  if(!item) return;
+  var type=item._evacType;
+  var typeLabel={meeting:'集結點',shield:'防護站',shelter:'收容所'}[type]||'地點';
+  if(!confirm('確定停用「'+item.name+'」？\n停用後會從地圖移除，並在 Sheet 註記，重新整理也不再顯示。')) return;
+  // 1) 從地圖移除
+  if(item._marker && layerGroups[item._layerKey]) layerGroups[item._layerKey].removeLayer(item._marker);
+  // 2) 從全域資料移除
+  var arr = type==='meeting'?evacSheetData.meetings : type==='shield'?evacSheetData.shields : evacSheetData.shelters;
+  var idx=arr.indexOf(item);
+  if(idx>=0) arr.splice(idx,1);
+  else { for(var i=arr.length-1;i>=0;i--){ if(arr[i].name===item.name && Math.abs(arr[i].lat-item.lat)<1e-6){ arr.splice(i,1); break; } } }
+  _evacCtxItem=null;
+  // 3) 寫入 Sheet 停用註記
+  fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({
+    action:'disable_evac_place',type:type,name:item.name,lat:item.lat,lng:item.lng
+  })}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.success) showRoadblockToast('✓ 已停用並在 Sheet 註記：'+item.name,true);
+    else showRoadblockToast('✗ Sheet 註記失敗：'+(d&&d.error||'未知')+'（地圖已移除）',false);
+  }).catch(function(e){ showRoadblockToast('✗ 連線失敗（地圖已移除，未寫入 Sheet）',false); });
 }
 
 var activeRoadblocks=[]; // 尚未刪除的路障，供路線查詢避開用
@@ -2865,31 +3017,14 @@ function parseEvacData(rows){
     if(r[10]&&r[10].trim()) lastShelterName=r[10].trim();
     if(r[11]&&r[11].trim()) lastShelterCoord=r[11].trim().replace(/[()]/g,'');
 
-    var mtg=r[3]?r[3].trim():'';
-    var mtgCoord=r[4]?r[4].trim():'';
-    if(!mtg) continue;
-
-    // 集結點（同時記錄對應的防護站、收容所、該里人數）
-    var mc=parseCoord(mtgCoord);
-    if(mc){
-      var shieldLabel=extractEvacName(lastShieldName)||'';
-      var shelterParts2=lastShelterName.split(/\d+\./).map(function(p){return extractEvacName(p);}).filter(Boolean);
-      meetings.push({
-        name:mtg,city:lastCity,dist:lastDist,boro:lastBoro,lat:mc.lat,lng:mc.lng,
-        shieldName:shieldLabel,
-        shelterNames:shelterParts2,
-        boroTotal:lastBoroTotal              // 欄9 該里預估疏散人數（判斷壅塞用，非路線）
-      });
-    }
-
-    // 防護站（同名只加一次）
+    // 防護站（同名只加一次）— 不論該列有無集結點都處理，支援臨時新增的純防護站列
     var sn=extractEvacName(lastShieldName);
     if(sn&&!shields[sn]){
       var sc=parseCoord(lastShieldCoord);
       if(sc) shields[sn]={name:sn,lat:sc.lat,lng:sc.lng};
     }
 
-    // 收容所（可多個，用分號對應座標）
+    // 收容所（可多個，用分號對應座標）— 同上，純收容所列也要解析
     var shelterParts=lastShelterName.split(/\d+\./);
     var shelterCoords=parseShelterCoords(lastShelterCoord);
     var ci=0;
@@ -2902,6 +3037,22 @@ function parseEvacData(rows){
       }
       ci++;
     });
+
+    // 集結點（需有名稱；同時記錄對應的防護站、收容所、該里人數）
+    var mtg=r[3]?r[3].trim():'';
+    var mtgCoord=r[4]?r[4].trim():'';
+    if(!mtg) continue;
+    var mc=parseCoord(mtgCoord);
+    if(mc){
+      var shieldLabel=extractEvacName(lastShieldName)||'';
+      var shelterParts2=lastShelterName.split(/\d+\./).map(function(p){return extractEvacName(p);}).filter(Boolean);
+      meetings.push({
+        name:mtg,city:lastCity,dist:lastDist,boro:lastBoro,lat:mc.lat,lng:mc.lng,
+        shieldName:shieldLabel,
+        shelterNames:shelterParts2,
+        boroTotal:lastBoroTotal              // 欄9 該里預估疏散人數（判斷壅塞用，非路線）
+      });
+    }
   }
 
   var shieldArr=[],shelterArr=[];
@@ -2910,22 +3061,26 @@ function parseEvacData(rows){
   return{meetings:meetings,shields:shieldArr,shelters:shelterArr};
 }
 
-function drawEvacItemsDirect(items,layerGroup,icon,typeLabel,layerKey){
+function drawEvacItemsDirect(items,type,key){
   var count=0;
   items.forEach(function(item){
     if(!item.lat||!item.lng) return;
-    var pop='<div class="popup-title">'+item.name+'</div>'+
-      '<div class="popup-meta">'+typeLabel+(item.boro?' · '+item.boro:'')+'</div>';
-    if(item.shieldName)
-      pop+='<div class="popup-meta" style="color:#1d4ed8">防護站：'+item.shieldName+'</div>';
-    if(item.shelterNames&&item.shelterNames.length)
-      pop+='<div class="popup-meta" style="color:#047857">收容所：'+item.shelterNames.join('、')+'</div>';
-    var m=L.marker([item.lat,item.lng],{icon:icon}).addTo(layerGroup).bindPopup(pop);
-    // 記住 marker 與所屬圖層，供 AI 里別警示（閃爍框）定位
-    item._marker=m; item._layerKey=layerKey;
+    attachEvacMarker(item,type,key);   // 含彈窗 + 右鍵停用，並記住 marker/圖層供閃爍框定位
     count++;
   });
   return count;
+}
+
+// 讀取「停用地點」分頁，回傳停用名稱 Set（重載時用以過濾，不再顯示）
+async function loadDisabledSet(sid){
+  try{
+    var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('停用地點');
+    var resp=await fetch(url); if(!resp.ok) return new Set();
+    var rows=parseFullCSV(await resp.text());
+    var set=new Set();
+    for(var i=1;i<rows.length;i++){ var r=rows[i]; if(r&&r[1]&&r[1].trim()) set.add(r[1].trim()); } // 欄1=名稱
+    return set;
+  }catch(e){ return new Set(); }
 }
 
 async function loadEvacuationData(){
@@ -2937,9 +3092,7 @@ async function loadEvacuationData(){
     {key:'1',tab:'核能一廠'},
     {key:'2',tab:'核能二廠'}
   ];
-  var icM=L.icon({iconUrl:'Meetingpoint.png',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
-  var icS=L.icon({iconUrl:'shield.png',      iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
-  var icR=L.icon({iconUrl:'shelter.png',     iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-28]});
+  var disabled=await loadDisabledSet(sid);   // 已停用地點（重載時過濾掉）
   var total=0;
   for(var p=0;p<plants.length;p++){
     var pl=plants[p];
@@ -2952,14 +3105,18 @@ async function loadEvacuationData(){
       var text=await resp.text();
       var rows=parseFullCSV(text);
       var data=parseEvacData(rows);
-      var cm=drawEvacItemsDirect(data.meetings,layerGroups['meeting'+pl.key],icM,'集結點','meeting'+pl.key);
-      var cs=drawEvacItemsDirect(data.shields, layerGroups['shield'+pl.key], icS,'防護站','shield'+pl.key);
-      var cr=drawEvacItemsDirect(data.shelters,layerGroups['shelter'+pl.key],icR,'避難收容所','shelter'+pl.key);
-      console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr);
-      // 存入全域，供 AI 路線查詢使用
-      evacSheetData.shields  = evacSheetData.shields.concat(data.shields);
-      evacSheetData.shelters = evacSheetData.shelters.concat(data.shelters);
-      evacSheetData.meetings = evacSheetData.meetings.concat(data.meetings);
+      var notDisabled=function(x){ return !disabled.has((x.name||'').trim()); };
+      var mtgs=data.meetings.filter(notDisabled);
+      var shds=data.shields.filter(notDisabled);
+      var shls=data.shelters.filter(notDisabled);
+      var cm=drawEvacItemsDirect(mtgs,'meeting',pl.key);
+      var cs=drawEvacItemsDirect(shds,'shield', pl.key);
+      var cr=drawEvacItemsDirect(shls,'shelter',pl.key);
+      console.log(label,'集結點:'+cm,'防護站:'+cs,'收容所:'+cr,'(停用過濾:'+disabled.size+')');
+      // 存入全域，供 AI 路線查詢使用（同樣排除已停用）
+      evacSheetData.shields  = evacSheetData.shields.concat(shds);
+      evacSheetData.shelters = evacSheetData.shelters.concat(shls);
+      evacSheetData.meetings = evacSheetData.meetings.concat(mtgs);
       total+=cm+cs+cr;
     }catch(e){
       console.error('evac',pl.tab,e);

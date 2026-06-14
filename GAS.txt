@@ -43,6 +43,10 @@ function doPost(e) {
       return handleUpdateRoadblockName(data);
     } else if (action === 'save_stations') {
       return handleSaveStations(data);
+    } else if (action === 'add_evac_place') {
+      return handleAddEvacPlace(data);
+    } else if (action === 'disable_evac_place') {
+      return handleDisableEvacPlace(data);
     }
 
     return ContentService.createTextOutput(
@@ -321,6 +325,49 @@ function handleUpdateRoadblockName(data) {
     }
   }
   return jsonResponse({ success: false, error: '找不到路障 ID: ' + data.id });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 新增 集結點／防護站／收容所：依規則寫入對應電廠分頁
+//  欄位: 0縣市 1區 2里 3集結點 4集結點座標 5防護站 6防護站座標 …10收容所 11收容所座標
+//  沒有的資訊留空白；座標不加括號（與前端 parseCoord 一致）
+// ──────────────────────────────────────────────────────────────
+function handleAddEvacPlace(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const sh = ss.getSheetByName(data.plantTab);
+  if (!sh) return jsonResponse({ success: false, error: '找不到分頁：' + data.plantTab });
+  const coord = data.lat + ', ' + data.lng;
+  const COLS = 12;
+  const row = [];
+  for (let i = 0; i < COLS; i++) row.push('');
+  if (data.type === 'meeting') {
+    row[0] = data.city || ''; row[1] = data.dist || ''; row[2] = data.boro || '';
+    row[3] = data.name; row[4] = coord;
+  } else if (data.type === 'shield') {
+    row[5] = data.name; row[6] = coord;
+  } else { // shelter
+    row[10] = data.name; row[11] = coord;
+  }
+  sh.appendRow(row);
+  return jsonResponse({ success: true });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 停用地點：寫入「停用地點」分頁註記（前端重載時據此過濾不顯示）
+// ──────────────────────────────────────────────────────────────
+function handleDisableEvacPlace(data) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName('停用地點');
+  if (!sh) {
+    sh = ss.insertSheet('停用地點');
+    sh.appendRow(['類型', '名稱', '緯度', '經度', '停用時間']);
+    sh.getRange(1, 1, 1, 5).setBackground('#1a3a5c').setFontColor('#fff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  const typeLabel = { meeting: '集結點', shield: '防護站', shelter: '收容所' }[data.type] || data.type;
+  const now = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+  sh.appendRow([typeLabel, data.name, data.lat, data.lng, now]);
+  return jsonResponse({ success: true });
 }
 
 function jsonResponse(obj) {
