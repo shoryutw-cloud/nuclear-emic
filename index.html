@@ -1278,6 +1278,14 @@ function isBatchEvacRouteQuery(q) {
   return (meeting && shield && route) || (allWord && meeting && route);
 }
 
+// 偵測「標示／啟動某範圍集結點」這種純標示指令 → 程式直接閃爍，不靠 AI 輸出 alert_boro
+function isHighlightMeetingsQuery(q) {
+  var meeting = /集結點|疏散點|集結/.test(q);
+  var act = /標示|標出|標記|標起|顯示|啟動|點亮|發亮|閃|框|圈|指出|亮起/.test(q);
+  var routey = /路線|路徑|防護站|怎麼走|路怎麼|堵|塞|擁塞|壅塞|瓶頸/.test(q); // 這些走批次路線
+  return meeting && act && !routey;
+}
+
 // 批次畫出集結點→對應防護站路線（重疊堆疊變深＝潛在瓶頸）
 // maxKm>0 時只畫距目前電廠 maxKm 內的集結點（例如 8km EPZ）
 var _evacRoutesDrawing = false;
@@ -1755,6 +1763,12 @@ async function sendQA() {
     var kmMatch = q.match(/(\d+(?:\.\d+)?)\s*(?:KM|km|公里|公裏|千米)/);
     drawAllEvacRoutes(kmMatch ? parseFloat(kmMatch[1]) : 0);  // 0 = 全部集結點
   }
+  // 純標示集結點 → 程式直接閃爍（不靠 AI 輸出 alert_boro，較可靠）
+  var highlightEvac = !batchEvac && isHighlightMeetingsQuery(q);
+  if (highlightEvac) {
+    var kmM = q.match(/(\d+(?:\.\d+)?)\s*(?:KM|km|公里|公裏|千米)/);
+    highlightMeetingsInRange(kmM ? parseFloat(kmM[1]) : 0, /掩蔽|室內/.test(q) ? '掩蔽' : '疏散');
+  }
 
   // 2. 從 Sheet 讀最近3輪對話歷史
   var history = await fetchQAHistory(3);
@@ -1823,7 +1837,7 @@ async function sendQA() {
 
     // 分離 route 與其他繪圖項目
     var routeItems = drawItems.filter(function(d){ return d.type === 'route'; });
-    var shapeItems = drawItems.filter(function(d){ return d.type !== 'route'; });
+    var shapeItems = drawItems.filter(function(d){ return d.type !== 'route' && !(highlightEvac && d.type === 'alert_boro'); });
     if (shapeItems.length > 0) drawAIShapes(shapeItems);
     if (routeItems.length > 0 && !batchEvac) {
       processRouteItems(routeItems);
@@ -2395,27 +2409,10 @@ function normBoro(s) {
 }
 
 // AI 指令：在指定里別的集結點圖示外圍加閃爍框（mode:'疏散'紅 / '掩蔽'紫）
-async function highlightBoroMeetings(boroName, mode) {
-  if (!boroName) return { count: 0, names: [] };
-  // 資料還沒載入就先載入
-  if (!evacSheetData.meetings.length) {
-    try { await loadEvacuationData(); } catch (e) {}
-  }
+// 對一組集結點加閃爍框（疏散紅／掩蔽紫）+ 開對應圖層 + 鏡頭聚焦（共用底層）
+function _alertMeetings(list, mode) {
   clearBoroAlerts();
-
-  var target = normBoro(boroName);
-  if (!target) return { count: 0, names: [] };
-
-  var matched = evacSheetData.meetings.filter(function(m) {
-    if (!m.boro || !m.lat || !m.lng) return false;
-    var b = normBoro(m.boro);
-    return b && (b.indexOf(target) >= 0 || target.indexOf(b) >= 0);
-  });
-  if (!matched.length) {
-    console.warn('里別警示：找不到集結點', boroName);
-    return { count: 0, names: [] };
-  }
-
+  if (!list.length) return { count: 0, names: [] };
   var isShelter = /掩蔽|室內|留在/.test(mode || '');
   var col  = isShelter ? '#8b5cf6' : '#dc2626';
   var glow = isShelter ? 'rgba(139,92,246,0.5)' : 'rgba(220,38,38,0.5)';
@@ -2424,28 +2421,53 @@ async function highlightBoroMeetings(boroName, mode) {
     html: '<div class="boro-alert-ring" style="--ar-color:' + col + ';--ar-glow:' + glow + '"></div>',
     iconSize: [44, 44], iconAnchor: [22, 36]   // 環繞 28px 集結點圖示（錨點對齊圖示中心）
   });
-
   var pts = [];
-  matched.forEach(function(m) {
-    // 確保該集結點所屬圖層是顯示的，否則只會看到框、看不到圖示
+  list.forEach(function(m) {
+    if (!m.lat || !m.lng) return;
+    // 確保該集結點所屬圖層顯示，否則只看到框、看不到圖示
     var key = m._layerKey;
     if (key && layerGroups[key] && !map.hasLayer(layerGroups[key])) {
       map.addLayer(layerGroups[key]);
       var el = document.getElementById('evac-' + key);
       if (el) el.classList.add('on');
     }
-    L.marker([m.lat, m.lng], { icon: ring, interactive: false, zIndexOffset: 1000 })
-      .addTo(layerGroups.boroAlert);
+    L.marker([m.lat, m.lng], { icon: ring, interactive: false, zIndexOffset: 1000 }).addTo(layerGroups.boroAlert);
     pts.push([m.lat, m.lng]);
   });
-
-  // 鏡頭聚焦到警示的集結點
   if (pts.length === 1) map.setView(pts[0], Math.max(map.getZoom(), 15));
-  else map.fitBounds(L.latLngBounds(pts).pad(0.4));
+  else if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.3));
+  return { count: list.length, names: list.map(function(m){ return m.name; }) };
+}
 
-  var names = matched.map(function(m) { return m.name; });
-  console.log('里別警示[' + (isShelter ? '掩蔽' : '疏散') + ']', boroName, '→', names.length, '個集結點:', names.join('、'));
-  return { count: matched.length, names: names };
+// AI 指令：在指定里別的集結點加閃爍框
+async function highlightBoroMeetings(boroName, mode) {
+  if (!boroName) return { count: 0, names: [] };
+  if (!evacSheetData.meetings.length) { try { await loadEvacuationData(); } catch (e) {} }
+  var target = normBoro(boroName);
+  if (!target) return { count: 0, names: [] };
+  var matched = evacSheetData.meetings.filter(function(m) {
+    if (!m.boro || !m.lat || !m.lng) return false;
+    var b = normBoro(m.boro);
+    return b && (b.indexOf(target) >= 0 || target.indexOf(b) >= 0);
+  });
+  if (!matched.length) { console.warn('里別警示：找不到集結點', boroName); return { count: 0, names: [] }; }
+  var r = _alertMeetings(matched, mode);
+  console.log('里別警示', boroName, '→', r.count, '個集結點');
+  return r;
+}
+
+// 程式 fast-path：對距目前電廠 maxKm 內的所有集結點加閃爍框（maxKm=0 表全部）
+async function highlightMeetingsInRange(maxKm, mode) {
+  if (!evacSheetData.meetings.length) { try { await loadEvacuationData(); } catch (e) {} }
+  var matched = evacSheetData.meetings.filter(function(m) {
+    if (!m.lat || !m.lng) return false;
+    if (maxKm && maxKm > 0 && haversine(m.lat, m.lng, currentPlant.lat, currentPlant.lng) > maxKm) return false;
+    return true;
+  });
+  if (!matched.length) { addQAMessage('範圍內沒有集結點資料（可能此電廠尚未載入或超出 ' + maxKm + 'km）。', 'ai'); return { count: 0, names: [] }; }
+  var r = _alertMeetings(matched, mode);
+  console.log('範圍警示 ' + (maxKm || '全部') + 'km →', r.count, '個集結點');
+  return r;
 }
 
 
