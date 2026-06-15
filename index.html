@@ -155,6 +155,18 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .ai-draw-tooltip{background:#12243a;color:#5dd4c8;border:1px solid #5dd4c8;border-radius:4px;font-size:12px;padding:2px 6px;font-family:var(--mono)}
 .village-tooltip{background:#5b21b6;color:#fff;border:1px solid #a78bfa;border-radius:4px;font-size:12px;padding:2px 7px;font-weight:600}
 .exit-tooltip{background:#7c2d12;color:#fed7aa;border:1px solid #ea580c;border-radius:4px;font-size:12px;padding:2px 7px;font-weight:600}
+#islandPanel{position:absolute;top:60px;left:64px;width:260px;max-height:60vh;overflow:auto;background:rgba(255,255,255,0.97);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.22);z-index:1500;font-size:13px}
+#islandPanel .ip-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#1f2937}
+#islandPanel .ip-close{background:none;border:none;font-size:18px;cursor:pointer;color:#9ca3af;line-height:1}
+#islandPanel #ip-body{padding:8px 14px 12px}
+#islandPanel .ip-sec{margin:8px 0 4px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+#islandPanel .ip-island{color:#b91c1c}
+#islandPanel .ip-partial{color:#b45309}
+#islandPanel .ip-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f3f4f6;cursor:pointer}
+#islandPanel .ip-row:hover{background:#f9fafb}
+#islandPanel .ip-row .nm{font-weight:600;color:#374151}
+#islandPanel .ip-row .ct{font-variant-numeric:tabular-nums;color:#6b7280}
+#islandPanel .ip-ok{color:#15803d;padding:6px 0}
 
 .evac-panel{position:fixed;top:50px;left:62px;z-index:999;background:rgba(255,255,255,0.97);border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:8px 10px;width:172px;display:none}
 .evac-panel.open{display:block}
@@ -238,6 +250,10 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
 <div class="map-wrap">
   <div id="map"></div>
+  <div id="islandPanel" style="display:none">
+    <div class="ip-head"><span id="ip-title">連外道路狀態</span><button class="ip-close" onclick="document.getElementById('islandPanel').style.display='none'">×</button></div>
+    <div id="ip-body"></div>
+  </div>
   <div class="left-toolbar">
     <button class="tool-btn" onclick="map.zoomIn()">＋</button>
     <button class="tool-btn" onclick="map.zoomOut()">－</button>
@@ -965,30 +981,154 @@ function toggleLayerPanel(name,ltId){
 }
 
 // ── 繪製核二廠 EPZ 38里官方村里界 ──────────────────────────────
+// 里界 layer 參照表（供孤島判定回頭改顏色）
+var villageLayers = {}; // village名 -> leaflet layer
+// 各里目前狀態：'normal' | 'partial'(受阻) | 'island'(孤島)
+var villageStatus = {};
+
+// 各狀態的樣式
+function villageStyle(status){
+  if(status==='island') return {color:'#b91c1c', weight:2.5, opacity:0.95, fillColor:'#ef4444', fillOpacity:0.32, dashArray:null};
+  if(status==='partial') return {color:'#b45309', weight:2, opacity:0.9, fillColor:'#f59e0b', fillOpacity:0.22, dashArray:null};
+  return {color:'#7c3aed', weight:1.5, opacity:0.85, fillColor:'#a78bfa', fillOpacity:0.08, dashArray:'4 2'};
+}
+
 function drawVillageBoundaries(){
   if(!layerGroups.villages || typeof EPZ_VILLAGES_N2==='undefined') return;
   layerGroups.villages.clearLayers();
+  villageLayers = {};
   L.geoJSON(EPZ_VILLAGES_N2,{
-    style: function(){
-      return {color:'#7c3aed', weight:1.5, opacity:0.85,
-              fillColor:'#a78bfa', fillOpacity:0.08, dashArray:'4 2'};
-    },
+    style: function(){ return villageStyle('normal'); },
     onEachFeature: function(feature, layer){
       var p = feature.properties;
-      var label = p.town + p.village;
-      layer.bindTooltip(label, {sticky:true, className:'village-tooltip'});
-      // 滑鼠移入highlight
+      villageLayers[p.village] = layer;
+      layer.bindTooltip(p.town + p.village, {sticky:true, className:'village-tooltip'});
       layer.on('mouseover', function(){
-        layer.setStyle({weight:2.5, fillOpacity:0.22, color:'#6d28d9'});
+        var st = villageStatus[p.village] || 'normal';
+        var s = villageStyle(st); s.weight = s.weight + 1; s.fillOpacity = Math.min(s.fillOpacity + 0.14, 0.5);
+        layer.setStyle(s);
       });
       layer.on('mouseout', function(){
-        layer.setStyle({weight:1.5, fillOpacity:0.08, color:'#7c3aed'});
+        layer.setStyle(villageStyle(villageStatus[p.village] || 'normal'));
       });
       layer.on('click', function(){
-        layer.bindPopup('<b>'+p.county+p.town+p.village+'</b><br>村里代碼: '+p.id).openPopup();
+        var st = villageStatus[p.village] || 'normal';
+        var stTxt = st==='island'?'⛔ 孤島（連外全斷）':(st==='partial'?'⚠️ 連外受阻':'✓ 正常');
+        layer.bindPopup('<b>'+p.county+p.town+p.village+'</b><br>狀態：'+stTxt+'<br>村里代碼: '+p.id).openPopup();
       });
     }
   }).addTo(layerGroups.villages);
+}
+
+// ══════════════════════════════════════════════════════════════
+// 孤島判定核心（純程式運算，不經 AI）
+// 邏輯：每個里的每個出口交點，150m 內有無活躍路障 → 該出口「被堵」
+//       全部出口被堵 = 孤島；部分被堵 = 受阻
+// ══════════════════════════════════════════════════════════════
+var ISLAND_RADIUS_M = 150; // 出口判定半徑（公尺），與路障判定圓一致
+var islandResult = { islands:[], partials:[], blockedExits:[] }; // 供後續 AI 使用
+
+function recomputeIslands(){
+  if(typeof exitPointsByVillage==='undefined' || !Object.keys(exitPointsByVillage).length) return;
+  islandResult = { islands:[], partials:[], blockedExits:[] };
+  villageStatus = {};
+
+  Object.keys(exitPointsByVillage).forEach(function(vill){
+    var exits = exitPointsByVillage[vill];
+    if(!exits || !exits.length) return;
+    var blockedCount = 0;
+    exits.forEach(function(ex){
+      var blocked = false;
+      for(var i=0;i<activeRoadblocks.length;i++){
+        var b = activeRoadblocks[i];
+        // haversine 回傳公里，乘1000轉公尺
+        var distM = haversine(ex.lat, ex.lng, b.lat, b.lng) * 1000;
+        if(distM <= ISLAND_RADIUS_M){ blocked = true; break; }
+      }
+      ex._blocked = blocked;
+      if(blocked){ blockedCount++; islandResult.blockedExits.push({village:vill, road:ex.road, lat:ex.lat, lng:ex.lng}); }
+    });
+    var total = exits.length;
+    var status;
+    if(blockedCount===0) status='normal';
+    else if(blockedCount<total) status='partial';
+    else status='island';
+    villageStatus[vill] = status;
+
+    var info = {village:vill, town:exits[0].town, county:exits[0].county,
+                total:total, blocked:blockedCount};
+    if(status==='island') islandResult.islands.push(info);
+    else if(status==='partial') islandResult.partials.push(info);
+  });
+
+  applyVillageStatusColors();
+  redrawExitPointsByStatus();
+  renderIslandPanel();
+}
+
+// 套用里界顏色
+function applyVillageStatusColors(){
+  Object.keys(villageLayers).forEach(function(vill){
+    var st = villageStatus[vill] || 'normal';
+    villageLayers[vill].setStyle(villageStyle(st));
+  });
+}
+
+// 依被堵狀態重畫出口交點（被堵紅、未堵橘）
+function redrawExitPointsByStatus(){
+  if(!layerGroups.exitPoints) return;
+  layerGroups.exitPoints.clearLayers();
+  exitPointsAll.forEach(function(p){
+    var col = p._blocked ? '#dc2626' : '#ea580c';
+    var ring = p._blocked ? '#fca5a5' : '#fff';
+    var icon=L.divIcon({className:'',
+      html:'<div style="background:'+col+';width:10px;height:10px;border-radius:50%;border:2px solid '+ring+';box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>',
+      iconSize:[10,10], iconAnchor:[5,5]});
+    L.marker([p.lat,p.lng],{icon:icon})
+      .bindTooltip(p.village+' · '+p.road+(p._blocked?'（已堵）':''), {className:'exit-tooltip', direction:'top'})
+      .addTo(layerGroups.exitPoints);
+  });
+}
+
+// 渲染孤島結果文字面板
+function renderIslandPanel(){
+  var panel=document.getElementById('islandPanel');
+  var body=document.getElementById('ip-body');
+  var title=document.getElementById('ip-title');
+  if(!panel||!body) return;
+  var islands=islandResult.islands, partials=islandResult.partials;
+  // 沒有任何受阻/孤島 → 隱藏面板
+  if(islands.length===0 && partials.length===0){ panel.style.display='none'; return; }
+  var html='';
+  if(islands.length){
+    html+='<div class="ip-sec ip-island">⛔ 孤島（連外全斷）'+islands.length+'</div>';
+    islands.forEach(function(it){
+      html+='<div class="ip-row" onclick="zoomToVillage(\''+it.village+'\')">'
+          +'<span class="nm">'+it.town+it.village+'</span>'
+          +'<span class="ct">'+it.blocked+'/'+it.total+' 出口堵</span></div>';
+    });
+  }
+  if(partials.length){
+    html+='<div class="ip-sec ip-partial">⚠️ 連外受阻 '+partials.length+'</div>';
+    partials.forEach(function(it){
+      html+='<div class="ip-row" onclick="zoomToVillage(\''+it.village+'\')">'
+          +'<span class="nm">'+it.town+it.village+'</span>'
+          +'<span class="ct">'+it.blocked+'/'+it.total+' 出口堵</span></div>';
+    });
+  }
+  title.textContent='連外道路狀態（'+(islands.length+partials.length)+'）';
+  body.innerHTML=html;
+  panel.style.display='block';
+}
+
+// 點面板的里 → 縮放定位
+function zoomToVillage(vill){
+  if(villageLayers[vill]){
+    map.fitBounds(villageLayers[vill].getBounds(), {padding:[80,80]});
+    // 確保村里界與出口圖層有開
+    if(!map.hasLayer(layerGroups.villages)){ map.addLayer(layerGroups.villages); var lv=document.getElementById('lt-villages'); if(lv)lv.classList.add('on'); }
+    if(!map.hasLayer(layerGroups.exitPoints)){ map.addLayer(layerGroups.exitPoints); var le=document.getElementById('lt-exitPoints'); if(le)le.classList.add('on'); }
+  }
 }
 var currentBase='nlsc';
 function switchBasemap(mode){
@@ -2900,6 +3040,7 @@ function doAddRoadblock(){
   addRoadblockMarker(id,lat,lng);
   fetchRoadName(blk); // 立即查路名並回寫 Sheet
   _tryManualRoute();  // 若已有起終點，立即重新規劃路線
+  recomputeIslands(); // 重算孤島狀態
   fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({action:'add_roadblock',id:id,lat:lat,lng:lng})
   }).then(function(r){return r.json();})
   .then(function(d){
@@ -2918,6 +3059,7 @@ function doDeleteRoadblock(){
   layerGroups.roadblock.removeLayer(marker);
   activeRoadblocks = activeRoadblocks.filter(function(b){ return String(b.id) !== String(id); });
   _tryManualRoute(); // 路障移除後重新規劃
+  recomputeIslands(); // 重算孤島狀態
   fetch(WEBAPP_URL,{method:'POST',
     body:JSON.stringify({action:'delete_roadblock',id:id})
   }).then(function(r){return r.json();})
@@ -3111,6 +3253,7 @@ async function loadRoadblocks(){
       }
     }
     console.log('路障載入，活躍數量:',activeRoadblocks.length);
+    if(typeof recomputeIslands==='function') recomputeIslands(); // 路障載入後算一次
   }catch(e){}
 }
 
@@ -3141,6 +3284,7 @@ async function loadExitPoints(){
     }
     console.log('連外道路出口載入：'+exitPointsAll.length+' 個交點，涵蓋 '+Object.keys(exitPointsByVillage).length+' 里');
     drawExitPoints();
+    recomputeIslands(); // 出口載入後算一次（反映已存在的路障）
   }catch(e){ console.warn('loadExitPoints 失敗:', e.message); }
 }
 
