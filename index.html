@@ -1064,6 +1064,57 @@ function recomputeIslands(){
   applyVillageStatusColors();
   redrawExitPointsByStatus();
   renderIslandPanel();
+  detectNewIslands(); // 偵測「從非孤島變孤島」的里，跳鳥面板示警
+}
+
+// 記住已示警過的孤島里，避免重複跳（設路障過程不洗版）
+var _warnedIslands = {};
+var _islandWarnReady = false; // 初始化載入階段不示警，避免一開頁就跳
+
+function detectNewIslands(){
+  var current = {};
+  islandResult.islands.forEach(function(it){ current[it.village] = it; });
+  // 初始化階段：只持續更新當前孤島狀態，不示警
+  if(!_islandWarnReady){
+    _warnedIslands = current;
+    return;
+  }
+  // 找出這次新成孤島、且還沒示警過的里
+  var fresh = islandResult.islands.filter(function(it){ return !_warnedIslands[it.village]; });
+  // 更新已示警集合（仍是孤島的保留，解除的移除→下次再成孤島會再示警）
+  var newWarned = {};
+  Object.keys(current).forEach(function(v){ newWarned[v] = true; });
+  _warnedIslands = newWarned;
+  if(fresh.length > 0) showIslandWarning(fresh);
+}
+
+// 純示警：開鳥面板、顯示「可能成為孤島」事實，不呼叫 AI、不生成建議
+function showIslandWarning(freshIslands){
+  if(typeof openBirdPanel==='function') openBirdPanel();
+  // 切到 AI 分頁
+  var tabs = document.querySelectorAll('.bird-tab');
+  if(tabs && tabs[0] && typeof switchBirdTab==='function') switchBirdTab('ai', tabs[0]);
+  var recList = document.getElementById('recList');
+  if(!recList) return;
+  var ts = new Date().toLocaleString('zh-TW',{hour12:false});
+  var rows = freshIslands.map(function(it){
+    return '<div style="background:rgba(255,255,255,0.18);border-radius:5px;padding:7px 11px;margin-bottom:5px;display:flex;align-items:center;gap:8px">' +
+      '<span style="font-size:13px">📍</span>' +
+      '<span style="flex:1;font-size:14px;color:#fff;font-weight:600">'+it.county+it.town+it.village+'</span>' +
+      '<span style="font-family:var(--mono);font-size:13px;color:#fecaca">'+it.blocked+'/'+it.total+' 出口全堵</span>' +
+    '</div>';
+  }).join('');
+  var html =
+    '<div style="background:#b91c1c;border-radius:8px;padding:13px 16px;margin-bottom:12px">' +
+      '<div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:3px">⚠️ 可能成為孤島 — 請人工確認</div>' +
+      '<div style="color:#fecaca;font-size:11px;margin-bottom:9px">'+ts+'　依連外道路出口與路障位置研判</div>' +
+      rows +
+      '<div style="color:#fecaca;font-size:11px;margin-top:8px;line-height:1.6">' +
+        '※ 系統研判上述里別所有連外道路出口皆被路障阻斷，<b>可能</b>成為孤島。<br>' +
+        '判定依出口交點 150m 內是否有路障，實際路況請派員確認。</div>' +
+    '</div>' +
+    '<div style="text-align:center;padding:8px;color:var(--text-dim);font-size:12px">（撤離建議待程序書知識庫完成後提供）</div>';
+  recList.innerHTML = html;
 }
 
 // 套用里界顏色
@@ -3629,6 +3680,8 @@ window.addEventListener('load',function(){
   initMap();
   loadRoadblocks();
   loadExitPoints(); // 讀取連外道路出口交點
+  // 出口與路障載入完成後（約8秒）才開放孤島示警，避免一開頁就跳
+  setTimeout(function(){ _islandWarnReady = true; console.log('孤島示警已啟用'); }, 8000);
   setTimeout(function(){if(map)map.invalidateSize();},200);
   initBirdDrag();
   fetchKnowledge('nuclear2'); // 預設核二廠
