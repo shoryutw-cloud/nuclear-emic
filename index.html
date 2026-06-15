@@ -8,6 +8,9 @@
 <link rel="icon" type="image/png" href="sparkles.png"/>
 <link rel="apple-touch-icon" href="sparkles.png"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<!-- 模擬情境上傳文件解析：PDF 用 pdf.js、Word 用 mammoth.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--navy:#12243a;--teal:#5dd4c8;--accent:#0077cc;--red:#dc2626;--orange:#ea580c;--yellow:#d97706;--green:#16a34a;--text:#1e3a5f;--text-dim:#5a7a9a;--border:#c5d3e0;--sans:system-ui,-apple-system,'Segoe UI',sans-serif;--mono:'Courier New',Courier,monospace}
@@ -1596,17 +1599,23 @@ function parseAIJSON(raw){
 function buildSimContextText(){
   if(!simContext) return '';
   var d = (simContext.disasters && simContext.disasters.length) ? simContext.disasters.join('、') : '無';
+  var docPart = '';
+  if(simContext.docText){
+    var dt = simContext.docText.length>3000 ? simContext.docText.substring(0,3000) : simContext.docText;
+    docPart = '\n\n【現場文件內容：'+(simContext.docName||'上傳文件')+'】（使用者提供，請一併納入研判）\n'+dt;
+  }
   return '\n\n【目前模擬情境】（使用者已設定，所有建議請依此情境）\n' +
     '電廠：'+simContext.plant+'\n事故等級：'+simContext.level+
     '\n最高輻射：'+simContext.value+' μSv/h\n次生災害：'+d+
-    (simContext.desc?('\n現場狀況：'+simContext.desc):'');
+    (simContext.desc?('\n現場狀況：'+simContext.desc):'') + docPart;
 }
 
 // 把模擬情境寫入 Sheet（記錄用，best-effort）
 function saveSimContextToSheet(c){
   fetch(WEBAPP_URL,{method:'POST',body:JSON.stringify({
     action:'save_sim_context', plant:c.plant, level:c.level, value:c.value,
-    disasters:(c.disasters||[]).join('、'), desc:c.desc||'', time:c.time
+    disasters:(c.disasters||[]).join('、'), desc:c.desc||'', time:c.time,
+    docText:c.docText||''
   })}).catch(function(e){});
 }
 
@@ -2379,12 +2388,176 @@ function submitManual(){
 }
 
 // ── 模擬情境 ──────────────────────────────────────────────────
+var simDocText = '';      // 本次上傳文件抽出的文字（餵 AI + 存 Sheet）
+var simDocName = '';      // 本次上傳文件檔名
+var pastSimContexts = []; // 從 Sheet 讀回的過去情境
+
 function simulateAccident(){
   var modal=document.getElementById('alertModal');
   document.getElementById('alertTime').textContent='情境模擬模式';
   document.getElementById('alertAI').innerHTML='';
-  document.getElementById('alertStations').innerHTML='<div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:12px">設定模擬情境</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px"><div><label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:3px">核電廠</label><select id="simPlant" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:14px;font-family:var(--sans)"><option value="nuclear2">☢ 核二廠（新北萬里）</option><option value="nuclear1">☢ 核一廠（新北石門）</option><option value="nuclear3">☢ 核三廠（屏東恆春）</option></select></div><div><label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:3px">事故等級</label><select id="simLevel" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:14px;font-family:var(--sans)"><option value="T1">T1 緊急戒備</option><option value="T2" selected>T2 廠區緊急</option><option value="T3">T3 全面緊急</option><option value="T4">T4 輻射外釋</option></select></div></div><div style="margin-bottom:10px"><label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px">次生災害</label><div style="display:flex;flex-wrap:wrap;gap:12px"><label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simEQ"> 地震</label><label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simTY"> 颱風</label><label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simFlood"> 水災</label><label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simFire"> 火災</label></div></div><div style="margin-bottom:10px"><label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:3px">最高輻射值 (μSv/h)</label><input type="number" id="simValue" value="2.5" step="0.1" min="0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:14px"></div><div style="margin-bottom:12px"><label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:3px">現場狀況描述</label><textarea id="simDesc" rows="3" placeholder="例：台2線金山段因地震路面龜裂，往基隆方向通行困難" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:13px;font-family:var(--sans);resize:vertical"></textarea></div><div style="display:flex;gap:8px"><button onclick="closeAlert()" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:6px;background:#f8fafc;font-size:14px;cursor:pointer;font-family:var(--sans)">取消</button><button onclick="runSimulate()" style="flex:2;padding:9px;background:var(--red);border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;font-family:var(--sans)">執行模擬 → AI 建議</button></div>';
+  simDocText=''; simDocName='';
+  var lbl='font-size:13px;color:var(--text-dim);display:block;margin-bottom:3px';
+  var inp='width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:14px;font-family:var(--sans)';
+  var h='<div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:12px">設定模擬情境</div>';
+  // 帶入過去事件
+  h+='<div style="margin-bottom:12px;padding:10px;background:#f0f6ff;border:1px solid #c5d3e0;border-radius:6px">'
+    +'<label style="'+lbl+'">帶入過去事件（選擇後填入下方表單，可再修改）</label>'
+    +'<select id="simPast" onchange="applyPastSim(this.value)" style="'+inp+'"><option value="">— 載入中… —</option></select></div>';
+  // 電廠 + 等級
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+    +'<div><label style="'+lbl+'">核電廠</label><select id="simPlant" style="'+inp+'">'
+    +'<option value="nuclear2">☢ 核二廠（新北萬里）</option><option value="nuclear1">☢ 核一廠（新北石門）</option><option value="nuclear3">☢ 核三廠（屏東恆春）</option></select></div>'
+    +'<div><label style="'+lbl+'">事故等級</label><select id="simLevel" style="'+inp+'">'
+    +'<option value="T1">T1 緊急戒備</option><option value="T2" selected>T2 廠區緊急</option><option value="T3">T3 全面緊急</option><option value="T4">T4 輻射外釋</option></select></div></div>';
+  // 次生災害
+  h+='<div style="margin-bottom:10px"><label style="'+lbl+'">次生災害</label><div style="display:flex;flex-wrap:wrap;gap:12px">'
+    +'<label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simEQ"> 地震</label>'
+    +'<label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simTY"> 颱風</label>'
+    +'<label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simFlood"> 水災</label>'
+    +'<label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="simFire"> 火災</label></div></div>';
+  // 輻射值
+  h+='<div style="margin-bottom:10px"><label style="'+lbl+'">最高輻射值 (μSv/h)</label>'
+    +'<input type="number" id="simValue" value="2.5" step="0.1" min="0" style="'+inp+'"></div>';
+  // 現場狀況描述
+  h+='<div style="margin-bottom:10px"><label style="'+lbl+'">現場狀況描述</label>'
+    +'<textarea id="simDesc" rows="3" placeholder="例：台2線金山段因地震路面龜裂，往基隆方向通行困難" style="'+inp+';resize:vertical"></textarea></div>';
+  // 上傳文件
+  h+='<div style="margin-bottom:12px;padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px">'
+    +'<label style="'+lbl+'">上傳現場文件（Word/PDF，AI 會一併研判）</label>'
+    +'<input type="file" id="simDocFile" accept=".pdf,.doc,.docx" onchange="handleSimDocUpload(this)" style="font-size:13px;width:100%">'
+    +'<div id="simDocStatus" style="font-size:12px;color:var(--text-dim);margin-top:6px"></div></div>';
+  // 按鈕
+  h+='<div style="display:flex;gap:8px">'
+    +'<button onclick="closeAlert()" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:6px;background:#f8fafc;font-size:14px;cursor:pointer;font-family:var(--sans)">取消</button>'
+    +'<button onclick="runSimulate()" style="flex:2;padding:9px;background:var(--red);border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;font-family:var(--sans)">執行模擬 → AI 建議</button></div>';
+  document.getElementById('alertStations').innerHTML=h;
   modal.style.display='flex';
+  loadPastSimContexts(); // 非同步載入過去事件下拉
+}
+
+// ── 上傳文件解析（Word/PDF → 純文字，瀏覽器端，不存檔）──────────
+var SIM_DOC_MAX = 6000; // 餵 AI / 存 Sheet 的文字上限
+async function handleSimDocUpload(input){
+  var file = input.files && input.files[0];
+  var status = document.getElementById('simDocStatus');
+  if(!file){ simDocText=''; simDocName=''; if(status) status.textContent=''; return; }
+  if(status) status.innerHTML='<span class="spinner spinner-dark"></span> 解析中…';
+  try{
+    var name = file.name.toLowerCase();
+    var text = '';
+    if(name.endsWith('.pdf')){
+      text = await parsePdfFile(file);
+    }else if(name.endsWith('.docx')){
+      text = await parseDocxFile(file);
+    }else if(name.endsWith('.doc')){
+      throw new Error('舊版 .doc 不支援，請另存為 .docx 或 PDF');
+    }else{
+      throw new Error('僅支援 PDF 或 Word(.docx)');
+    }
+    text = (text||'').replace(/\s+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+    if(!text){ throw new Error('檔案無文字內容（可能是掃描圖片，需 OCR，暫不支援）'); }
+    var truncated = text.length > SIM_DOC_MAX;
+    simDocText = truncated ? text.substring(0,SIM_DOC_MAX) : text;
+    simDocName = file.name;
+    if(status) status.innerHTML='✓ 已讀取 <b>'+escHtml(file.name)+'</b>（'+text.length+' 字'
+      +(truncated?('，超過上限取前 '+SIM_DOC_MAX+' 字'):'')+'）';
+  }catch(e){
+    simDocText=''; simDocName='';
+    if(status) status.innerHTML='<span style="color:var(--red)">✗ '+escHtml(e.message)+'</span>';
+  }
+}
+
+async function parsePdfFile(file){
+  var buf = await file.arrayBuffer();
+  if(typeof pdfjsLib==='undefined' && typeof window.pdfjsLib==='undefined')
+    throw new Error('PDF 解析庫未載入');
+  var lib = window.pdfjsLib || pdfjsLib;
+  try{ lib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}
+  var pdf = await lib.getDocument({data:buf}).promise;
+  var out = [];
+  var maxPages = Math.min(pdf.numPages, 30); // 最多讀30頁，避免過大
+  for(var i=1;i<=maxPages;i++){
+    var page = await pdf.getPage(i);
+    var content = await page.getTextContent();
+    out.push(content.items.map(function(it){return it.str;}).join(' '));
+  }
+  return out.join('\n');
+}
+
+async function parseDocxFile(file){
+  var buf = await file.arrayBuffer();
+  if(typeof mammoth==='undefined' && typeof window.mammoth==='undefined')
+    throw new Error('Word 解析庫未載入');
+  var lib = window.mammoth || mammoth;
+  var result = await lib.extractRawText({arrayBuffer:buf});
+  return result.value || '';
+}
+
+// ── 帶入過去事件：從 Sheet「模擬情境」分頁讀取 ────────────────────
+async function loadPastSimContexts(){
+  var sel = document.getElementById('simPast');
+  if(!sel) return;
+  var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+  var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('模擬情境');
+  try{
+    var resp=await fetch(url);
+    if(!resp.ok){ sel.innerHTML='<option value="">（無法載入過去事件）</option>'; return; }
+    var rows=parseFullCSV(await resp.text());
+    // 欄位：A時間 B電廠 C等級 D輻射 E次生災害 F現場狀況 G現場文件(新增)
+    pastSimContexts=[];
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i];
+      if(!r || r.length<2 || !(r[1]||'').trim()) continue;
+      pastSimContexts.push({
+        time:(r[0]||'').trim(), plant:(r[1]||'').trim(), level:(r[2]||'').trim(),
+        value:(r[3]||'').trim(), disasters:(r[4]||'').trim(), desc:(r[5]||'').trim(),
+        docText:(r[6]||'').trim()
+      });
+    }
+    // 最新的排前面
+    pastSimContexts.reverse();
+    var opts='<option value="">— 不帶入，建立全新情境 —</option>';
+    pastSimContexts.forEach(function(c,idx){
+      var label=c.time+'｜'+c.plant+' '+c.level+(c.disasters?(' +'+c.disasters):'')+(c.docText?' 📎':'');
+      opts+='<option value="'+idx+'">'+escHtml(label)+'</option>';
+    });
+    sel.innerHTML=opts;
+    if(pastSimContexts.length===0) sel.innerHTML='<option value="">（尚無過去事件記錄）</option>';
+  }catch(e){
+    sel.innerHTML='<option value="">（載入失敗：'+escHtml(e.message)+'）</option>';
+  }
+}
+
+// 選擇過去事件 → 填回表單
+function applyPastSim(idx){
+  if(idx==='') return;
+  var c = pastSimContexts[parseInt(idx)];
+  if(!c) return;
+  // 電廠：用名稱反查 key
+  var plantKey='nuclear2';
+  if(c.plant.indexOf('核一')>=0||c.plant.indexOf('核能一')>=0||c.plant.indexOf('石門')>=0) plantKey='nuclear1';
+  else if(c.plant.indexOf('核三')>=0||c.plant.indexOf('核能三')>=0||c.plant.indexOf('恆春')>=0) plantKey='nuclear3';
+  var ep=document.getElementById('simPlant'); if(ep) ep.value=plantKey;
+  var el=document.getElementById('simLevel'); if(el && c.level) el.value=c.level;
+  var ev=document.getElementById('simValue'); if(ev && c.value) ev.value=parseFloat(c.value)||2.5;
+  var ed=document.getElementById('simDesc'); if(ed) ed.value=c.desc||'';
+  // 次生災害勾選
+  document.getElementById('simEQ').checked = c.disasters.indexOf('地震')>=0;
+  document.getElementById('simTY').checked = c.disasters.indexOf('颱風')>=0;
+  document.getElementById('simFlood').checked = c.disasters.indexOf('水災')>=0;
+  document.getElementById('simFire').checked = c.disasters.indexOf('火災')>=0;
+  // 帶回文件文字（不重新上傳檔案，直接用存的文字）
+  simDocText = c.docText || '';
+  simDocName = c.docText ? '（沿用過去事件文件）' : '';
+  var status=document.getElementById('simDocStatus');
+  if(status){
+    status.innerHTML = c.docText
+      ? '✓ 已帶入過去事件的現場文件（'+c.docText.length+' 字），如需更換可重新上傳'
+      : '';
+  }
+  // 清空 file input（避免混淆）
+  var ef=document.getElementById('simDocFile'); if(ef) ef.value='';
 }
 
 async function runSimulate(){
@@ -2396,7 +2569,7 @@ async function runSimulate(){
   var disasters=[document.getElementById('simEQ').checked&&'地震',document.getElementById('simTY').checked&&'颱風',document.getElementById('simFlood').checked&&'水災',document.getElementById('simFire').checked&&'火災'].filter(Boolean);
   currentPlant=plant;simMode=true;
   // 記住情境（全域→注入所有 AI 對話）＋寫入 Sheet 記錄
-  simContext={plant:plant.name,level:level,value:value.toFixed(2),disasters:disasters,desc:desc,time:new Date().toLocaleString('zh-TW',{hour12:false})};
+  simContext={plant:plant.name,level:level,value:value.toFixed(2),disasters:disasters,desc:desc,docText:simDocText||'',docName:simDocName||'',time:new Date().toLocaleString('zh-TW',{hour12:false})};
   lastSimAdvice=null;
   saveSimContextToSheet(simContext);
   map.setView([plant.lat,plant.lng],plant.zoom);
@@ -2414,7 +2587,8 @@ async function runSimulate(){
   if(!key){document.getElementById('alertAI').innerHTML='<div style="color:var(--text-dim);padding:8px;font-size:13px">請輸入 API Key 以獲取 AI 建議</div>';return;}
   var disCtx=disasters.length?('\n\n【次生災害】'+disasters.join('、')+'同時發生，可能影響疏散路線。'):'';
   var descCtx=desc?('\n\n【現場狀況】'+desc):'';
-  var situation='電廠：'+plant.name+'\n等級：'+level+'\n最高輻射：'+value.toFixed(2)+' μSv/h'+disCtx+descCtx;
+  var docCtx=simDocText?('\n\n【上傳現場文件：'+(simDocName||'文件')+'】\n'+simDocText):'';
+  var situation='電廠：'+plant.name+'\n等級：'+level+'\n最高輻射：'+value.toFixed(2)+' μSv/h'+disCtx+descCtx+docCtx;
   try{
     var advice=await generateScenarioAdvice(situation); // 完整建議只產生這一次
     lastSimAdvice=advice;                                // 存起來供「完整 AI 建議」重用，不再重問
