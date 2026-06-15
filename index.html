@@ -154,6 +154,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 
 .ai-draw-tooltip{background:#12243a;color:#5dd4c8;border:1px solid #5dd4c8;border-radius:4px;font-size:12px;padding:2px 6px;font-family:var(--mono)}
 .village-tooltip{background:#5b21b6;color:#fff;border:1px solid #a78bfa;border-radius:4px;font-size:12px;padding:2px 7px;font-weight:600}
+.exit-tooltip{background:#7c2d12;color:#fed7aa;border:1px solid #ea580c;border-radius:4px;font-size:12px;padding:2px 7px;font-weight:600}
 
 .evac-panel{position:fixed;top:50px;left:62px;z-index:999;background:rgba(255,255,255,0.97);border:1px solid var(--border);border-radius:6px;box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:8px 10px;width:172px;display:none}
 .evac-panel.open{display:block}
@@ -406,6 +407,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       <div style="display:flex;gap:6px;margin-bottom:8px">
         <div class="layer-toggle on" id="lt-aiDraw" onclick="toggleLayerPanel('aiDraw','lt-aiDraw')">AI 繪圖圖層</div>
         <div class="layer-toggle" id="lt-villages" onclick="toggleLayerPanel('villages','lt-villages')" title="核二廠EPZ 38里官方村里界（內政部國土測繪中心）">村里界（38里）</div>
+        <div class="layer-toggle" id="lt-exitPoints" onclick="toggleLayerPanel('exitPoints','lt-exitPoints')" title="各里連外道路與里界的交點（出口），孤島判定依據">連外道路出口</div>
         <button onclick="clearAIShapes();document.getElementById('lt-aiDraw').classList.add('on')" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:4px;background:#f8fafc;font-size:13px;cursor:pointer;font-family:var(--sans);color:var(--text-dim)">清除</button>
       </div>
       <div class="sec-label">底圖</div>
@@ -1029,6 +1031,7 @@ function initMap(){
   layerGroups.boroAlert=L.layerGroup().addTo(map); // 里別疏散/掩蔽閃爍警示框
   layerGroups.villages=L.layerGroup(); // 村里界圖層（預設關閉）
   drawVillageBoundaries(); // 預先繪製38里邊界
+  layerGroups.exitPoints=L.layerGroup(); // 連外道路出口交點圖層（預設關閉）
   map.on('contextmenu',function(e){
     L.DomEvent.preventDefault(e.originalEvent);
     showMapCtxMenu(e.containerPoint,e.latlng,null);
@@ -3111,6 +3114,50 @@ async function loadRoadblocks(){
   }catch(e){}
 }
 
+// ── 連外道路出口交點（從 Sheet「連外道路」分頁讀取）──────────────
+// 資料結構：exitPointsByVillage[里別] = [{road, lat, lng, county, town}, ...]
+var exitPointsByVillage = {};
+var exitPointsAll = []; // 攤平的所有交點，供孤島比對用
+
+async function loadExitPoints(){
+  var sid='12Hrujjdqg_UlozztOoxsA0gs2Uz-xP4bTE91ofS8Qv0';
+  var url='https://docs.google.com/spreadsheets/d/'+sid+'/gviz/tq?tqx=out:csv&sheet='+encodeURIComponent('連外道路');
+  try{
+    var resp=await fetch(url);
+    if(!resp.ok){ console.warn('連外道路分頁讀取失敗'); return; }
+    var rows=parseFullCSV(await resp.text());
+    exitPointsByVillage={}; exitPointsAll=[];
+    // 欄位：A縣市 B區 C里 D道路 E緯度 F經度 G資料來源 H備註
+    for(var i=1;i<rows.length;i++){
+      var r=rows[i];
+      if(!r||r.length<6) continue;
+      var county=(r[0]||'').trim(), town=(r[1]||'').trim(), vill=(r[2]||'').trim();
+      var road=(r[3]||'').trim();
+      var lat=parseFloat(r[4]), lng=parseFloat(r[5]);
+      if(!vill || isNaN(lat) || isNaN(lng)) continue; // 無座標的（OSM無資料列）跳過
+      var pt={county:county, town:town, village:vill, road:road, lat:lat, lng:lng};
+      (exitPointsByVillage[vill]=exitPointsByVillage[vill]||[]).push(pt);
+      exitPointsAll.push(pt);
+    }
+    console.log('連外道路出口載入：'+exitPointsAll.length+' 個交點，涵蓋 '+Object.keys(exitPointsByVillage).length+' 里');
+    drawExitPoints();
+  }catch(e){ console.warn('loadExitPoints 失敗:', e.message); }
+}
+
+// 把交點畫到圖層（橘色小點，tooltip 顯示 里·道路）
+function drawExitPoints(){
+  if(!layerGroups.exitPoints) return;
+  layerGroups.exitPoints.clearLayers();
+  exitPointsAll.forEach(function(p){
+    var icon=L.divIcon({className:'',
+      html:'<div style="background:#ea580c;width:10px;height:10px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>',
+      iconSize:[10,10], iconAnchor:[5,5]});
+    L.marker([p.lat,p.lng],{icon:icon})
+      .bindTooltip(p.village+' · '+p.road, {className:'exit-tooltip', direction:'top'})
+      .addTo(layerGroups.exitPoints);
+  });
+}
+
 // 用 OSRM /nearest 查路名並寫回 Sheet
 async function fetchRoadName(blk){
   try{
@@ -3437,6 +3484,7 @@ window.addEventListener('load',function(){
   if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
   initMap();
   loadRoadblocks();
+  loadExitPoints(); // 讀取連外道路出口交點
   setTimeout(function(){if(map)map.invalidateSize();},200);
   initBirdDrag();
   fetchKnowledge('nuclear2'); // 預設核二廠
