@@ -2681,12 +2681,43 @@ async function runSimulate(){
   var situation='電廠：'+plant.name+'\n等級：'+level+'\n最高輻射：'+value.toFixed(2)+' μSv/h'+disCtx+descCtx+docCtx;
   try{
     var advice=await generateScenarioAdvice(situation); // 完整建議只產生這一次
+    advice=ensureBoroAlerts(advice);                     // 保底：T2+ 若 AI 漏給 alert_boro 則自動補
     lastSimAdvice=advice;                                // 存起來供「完整 AI 建議」重用，不再重問
     document.getElementById('alertAI').innerHTML=renderAdviceSummaryHTML(advice);
     if(advice.draw && advice.draw.length) drawAIShapes(advice.draw);
   }catch(e){document.getElementById('alertAI').innerHTML='<div style="color:var(--red);font-size:13px">AI 呼叫失敗：'+e.message+'</div>';}
 }
 
+
+// 保底：AI 判定 T2 以上但 draw 沒給 alert_boro 時，依等級自動補上里別閃爍框
+// 規則：T2 → 0-3km疏散、3-8km掩蔽；T3/T4 → 0-3km+3-8km下風向疏散、其餘掩蔽
+function ensureBoroAlerts(advice){
+  if(!advice) return advice;
+  var lv = (advice.alert_level||'').toUpperCase();
+  // 只在 T2 以上才需要疏散/掩蔽
+  if(['T2','T3','T4'].indexOf(lv) < 0) return advice;
+  if(!advice.draw) advice.draw = [];
+  // 已經有 alert_boro 就尊重 AI（不重複補）
+  if(advice.draw.some(function(d){return d.type==='alert_boro';})) return advice;
+  // 取下風向里（若有風向），用來判斷 3-8km 哪些要疏散
+  var downSet = {};
+  if(windDir!==null){
+    try{ getDownwindVillages(windDir).forEach(function(v){ downSet[v.name]=true; }); }catch(e){}
+  }
+  Object.keys(VILLAGE_GEO).forEach(function(name){
+    var z = VILLAGE_GEO[name].zone;
+    if(z==='0-3km'){
+      advice.draw.push({type:'alert_boro', boro:name, mode:'疏散'}); // 0-3km 一律疏散
+    } else if(z==='3-8km'){
+      // T2：3-8km 掩蔽；T3/T4：下風向疏散、其餘掩蔽
+      var mode = '掩蔽';
+      if((lv==='T3'||lv==='T4') && downSet[name]) mode = '疏散';
+      advice.draw.push({type:'alert_boro', boro:name, mode:mode});
+    }
+  });
+  console.log('保底補 alert_boro：等級'+lv+'，共'+advice.draw.filter(function(d){return d.type==='alert_boro';}).length+'個里');
+  return advice;
+}
 
 // ── 地理座標背景知識（供鳥 AI 判斷下風向村里）──────────────────
 var VILLAGE_GEO = {
@@ -2776,6 +2807,7 @@ async function triggerBirdAnalysis(situation, overStations) {
   document.getElementById('recList').innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-dim)"><span class="spinner spinner-dark"></span><br>鳥 AI 正在分析情境並主動建議…</div>';
   try {
     var advice = await generateScenarioAdvice(situation);
+    advice = ensureBoroAlerts(advice); // 保底：T2+ 若 AI 漏給 alert_boro 則自動補
     renderRecommendations(advice);
     if (advice.draw && advice.draw.length) { drawAIShapes(advice.draw); console.log('AI 繪圖：', advice.draw.length, '個圖形'); }
   } catch(e) {
@@ -2821,7 +2853,12 @@ async function generateScenarioAdvice(situation){
     '　- 若目前是 T1：建議內容應為「留意官方消息、配合景點關閉與交通管制、做好準備但無須掩蔽或疏散」。【嚴禁】出現「立即進入室內掩蔽」「疏散某某里」這類超前指令，也不要在 draw 輸出 alert_boro。可明確告知民眾「目前輻射正常、尚不需採取防護行動」以安定民心。\n' +
     '　- 若目前是 T2 以上：才依下風向與 EPZ 距離指出哪些里疏散、哪些里掩蔽，並對應輸出 alert_boro。\n' +
     '步驟4：若有次生災害，補充說明影響。\n' +
-    '步驟5：draw 規則：僅當當前等級需要疏散時對該里輸出 alert_boro(mode:疏散)、需要掩蔽時輸出 alert_boro(mode:掩蔽)；T1 不輸出 alert_boro。\n' +
+    '步驟5：draw 規則（★務必確實執行，否則地圖不會有反應）：\n' +
+    '　- 嚴禁只寫「EPZ 0-3km」「3-8km範圍」這種抽象範圍，必須【展開成具體里名】。\n' +
+    '　- 需要疏散時：對每一個應疏散的里，各輸出一個 alert_boro，格式 {"type":"alert_boro","boro":"野柳里","mode":"疏散"}。0-3km 疏散里＝野柳里、龜吼里。\n' +
+    '　- 需要掩蔽時：對每一個應掩蔽的里，各輸出一個 alert_boro，mode填「掩蔽」。3-8km 掩蔽里＝萬里里、北基里、大鵬里、中幅里、崁腳里、溪底里、磺潭里、雙興里及金山區各里。\n' +
+    '　- T2 範例：draw 至少要有 野柳里(疏散)、龜吼里(疏散) 兩個 alert_boro，加上 3-8km 各掩蔽里的 alert_boro。\n' +
+    '　- T1 不需疏散掩蔽，draw 不輸出 alert_boro。\n' +
     '請依計畫書和目前情境，給出符合該等級、真正必要的防護建議——該幾條就幾條，不必湊數。若該等級只需少數行動（例如 T1 只需留意消息、配合管制），就只給那幾條；不要為了湊數而加入超出當前等級的建議。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
