@@ -506,6 +506,28 @@ var KNOWLEDGE_DOCS = {
   nuclear2: '1KfLFFV0JHBoYqW6hZkzyeDyfFqyIp4e1-Kr9zXSoO94', // 核二廠：新北市計畫書
   nuclear3: '1T11L60hnUqzu4uZtNlonZsqtyICZyHAf7YHIXpDTDCc', // 核三廠：屏東縣計畫書
 };
+
+// ── 作業程序書索引（AI精簡版，選擇性載入避免token爆量）──────────────
+// 問答/情境時依關鍵字命中，只載入相關1-3份，不全部塞入prompt
+var PROCEDURE_DOCS = [
+  {id:'1BRQtIWjOklz0pHl2ZPyaPHaSea9d_qzLk4RoBhdvX6I', title:'2101核子事故緊急應變(母程序書)', org:'核安會', keywords:['開設','二級','一級','動員','編組','撤除','縮小','指揮官','應變小組','警報語詞','複合災害','層級']},
+  {id:'1Ch97rS6RhhSdAWguc3z44lCxy6RYbvHm1vksbSDimR4', title:'2103策劃協調組', org:'核安會', keywords:['通報','動員','聯繫','協調','設備測試','通訊','視訊','國際通報']},
+  {id:'1Im32O-QYsie8eruvz6BDlvZ6BzAqcO__3Ft_UrM8hUc', title:'2104事故評估組', org:'核安會', keywords:['事故評估','事故等級','複判','爐心','圍阻體','SPDS','技術支援','演變趨勢','安全系統']},
+  {id:'1UcsGbYIHgtBSYnWj0qtH-KFHgq9Vm4naHTqzJsfrA34', title:'2105劑量評估組', org:'核安會', keywords:['劑量','干預基準','掩蔽','疏散','碘片','移居','飲食管制','毫西弗','微西弗','劑量評估','可減免劑量','防護行動']},
+  {id:'1tcu2PYrDB4cFOkxEdvmYgJuq2lXsrrTVsRLzoy4kYv4', title:'2106新聞組', org:'核安會', keywords:['新聞','媒體','記者會','插播','澄清','謠言','假訊息','民眾溝通','輿情','發布','諮詢']},
+  {id:'1NL9T8q2y3Ph2so2k3mMyLFlVhkd_KEoSFKq7vi-6atc', title:'2107行政支援組', org:'核安會', keywords:['行政','後勤','食宿','經費','人事','法規','場所','支援']},
+  {id:'1oowwSJCL_MysZqX2FojCEFVuEQOa485OtS9QZRdMdz8', title:'3307災情監控組', org:'中災中心', keywords:['災情','監控','彙整','EMIC','災情統計','食品','飲水','農漁','污染災情']},
+  {id:'12etzccAKOliYLKxNkZD3cptGWxfJ8y0Z4M1IfouKo1c', title:'3308疏散撤離組', org:'中災中心', keywords:['疏散','撤離','交通管制','疏散路線','載具','車輛徵調','瓶頸','收容','風向','撤離人數']},
+  {id:'1KBqBiIl5TT9pbOv6zonA-5QKyz1ukjISeeVMWxaUwlc', title:'3309輻災救援組', org:'中災中心', keywords:['輻災救援','CBS','細胞廣播','警報發送','民眾防護決策','機組搶救','外釋','國軍','救援','技術諮詢']},
+  {id:'198B9W-CqS3vgEgwQ5VsSDndDUaz1GfgyCezQ-w8SJn0', title:'3310-3312網路資訊/行政/後勤組', org:'中災中心', keywords:['網站','網頁','資訊','文書','會議記錄','後勤','餐點','長官','幕僚']},
+  {id:'13wCip2vRRD1srUE9-ZvDizkJFlNxuWe_kEIPI9UGbuM', title:'輻射監測中心通報動員開設', org:'監測中心', keywords:['輻射監測中心','開設','偵測隊','技術組','通報頻率','外釋','監測','進駐','偵測車']},
+  {id:'1KyGvwLeZszeiGXSullgaK0q3OOZQmtPnugBu5DoKyag', title:'輻射監測中心警報發放', org:'監測中心', keywords:['警報','預警系統','廣播','分站','警報訊號','警報音','廣播詞','有線電視','備援','發放']},
+  {id:'1aRtB4lOHb3BsxEaJXbahSaPlcl0YQ56w7lkQilUNxmY', title:'輻射監測中心碘片發放及服用', org:'監測中心', keywords:['碘片','甲狀腺','服用','放射性碘','劑量','過敏','兒童','孕婦','發放']},
+  {id:'1AkxPaR28AZYiYLaNKWNtKhu_5hotx5hY5ZzzwSpoxZU', title:'輻射監測中心民眾及應變人員輻射偵測', org:'監測中心', keywords:['偵測','偵檢','門框','防護站','收容所','除污','污染','OIL4','背景值','劑量率','標籤']},
+  {id:'1Ut0ZqSqH3rm96hVU9P8dTOjjBJDkxUZKFdWGnmkirbM', title:'輻射監測中心技術作業總覽', org:'監測中心', keywords:['偵測','取樣','除污','空中偵測','無人機','海上偵測','農漁採樣','飲用水','車輛除污','廢水','樣品']},
+];
+var procedureCache = {};   // 程序書內容快取 {docId: text}
+var procedureIndexLoaded = false;
 var knowledgeCache = {}; // 已載入的知識庫快取
 var TDX_ID     = 'shoryu.tw-2ea8aaf0-425b-402b';
 var TDX_SECRET = '691c298f-d622-4861-ab51-eb1421dfdd67';
@@ -1369,6 +1391,56 @@ async function fetchKnowledge(plantKey){
   }catch(e){ console.warn('知識庫載入失敗:', e.message); }
 }
 
+// ── 程序書選擇性載入 ─────────────────────────────────────────────
+// 依查詢文字命中關鍵字，挑出最相關的程序書（最多 maxDocs 份）
+function pickRelevantProcedures(queryText, maxDocs){
+  maxDocs = maxDocs || 3;
+  if(!queryText) return [];
+  var scored = PROCEDURE_DOCS.map(function(doc){
+    var score = 0;
+    doc.keywords.forEach(function(kw){
+      if(queryText.indexOf(kw) >= 0) score += 1;
+    });
+    // 標題關鍵詞也比對（例如使用者直接說「3309」或「疏散撤離組」）
+    if(queryText.indexOf(doc.title.replace(/^\d+/,'')) >= 0) score += 2;
+    var num = (doc.title.match(/^\d{4}/)||[])[0];
+    if(num && queryText.indexOf(num) >= 0) score += 3;
+    return {doc: doc, score: score};
+  }).filter(function(x){ return x.score > 0; });
+  scored.sort(function(a,b){ return b.score - a.score; });
+  return scored.slice(0, maxDocs).map(function(x){ return x.doc; });
+}
+
+// 載入指定程序書內容（含快取）
+async function fetchProcedure(docId){
+  if(procedureCache[docId]) return procedureCache[docId];
+  try{
+    var url = 'https://docs.google.com/document/d/' + docId + '/export?format=txt';
+    var res = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    if(res.ok){
+      var t = await res.text();
+      if(t && t.length > 50){ procedureCache[docId] = t; return t; }
+    }
+  }catch(e){ console.warn('程序書載入失敗:', docId, e.message); }
+  return '';
+}
+
+// 依查詢文字組出「相關程序書」注入文字（選擇性載入，控制token）
+async function buildProcedureContext(queryText, maxDocs){
+  var picks = pickRelevantProcedures(queryText, maxDocs);
+  if(!picks.length) return '';
+  var parts = [];
+  for(var i=0;i<picks.length;i++){
+    var txt = await fetchProcedure(picks[i].id);
+    if(txt) parts.push('〔'+picks[i].org+' '+picks[i].title+'〕\n'+txt.substring(0,3500));
+  }
+  if(!parts.length) return '';
+  console.log('程序書選擇性載入:', picks.map(function(p){return p.title;}).join('、'));
+  return '\n\n【相關作業程序書（AI精簡版，依本次情境調用）】\n' +
+         '說明：以下程序書內容含【指揮官決策】與【應變組織任務】標記，請依此區分建議對象。\n' +
+         parts.join('\n\n') + '\n';
+}
+
 // 從 plant 物件取得 key
 function getPlantKey(plant){
   if(plant === PLANTS.nuclear3) return 'nuclear3';
@@ -1680,10 +1752,12 @@ function saveSimContextToSheet(c){
 // 模擬視窗用的精簡建議摘要（與鳥面板共用同一份 AI 回應）
 function renderAdviceSummaryHTML(a){
   if(!a) return '<div style="color:var(--text-dim);font-size:13px">無建議內容</div>';
+  var audIcon={'指揮官':'⭐','應變組織':'🛡','民眾':'👥'};
   var html='';
   if(a.situation_summary) html+='<div style="background:rgba(0,119,204,0.06);border:1px solid rgba(0,119,204,0.15);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;line-height:1.6">'+escHtml(a.situation_summary)+'</div>';
   (a.recommendations||[]).forEach(function(r,i){
-    html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.6"><b>'+(i+1)+'.〔'+escHtml(r.priority||'')+'〕'+escHtml(r.title||'')+'</b><br>'+escHtml(r.action||'')+'</div>';
+    var aud=r.audience&&audIcon[r.audience]?('<span style="color:var(--text-dim)">'+audIcon[r.audience]+escHtml(r.audience)+'｜</span>'):'';
+    html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.6"><b>'+(i+1)+'.〔'+escHtml(r.priority||'')+'〕'+aud+escHtml(r.title||'')+'</b><br>'+escHtml(r.action||'')+'</div>';
   });
   html+='<div style="font-size:12px;color:var(--text-dim);margin-top:6px">＊點下方「完整 AI 建議」看詳細卡片與計畫書依據</div>';
   return html;
@@ -1714,7 +1788,8 @@ async function generateAI(){
   var knSrc=driveKnowledge?'Google Drive 最新版':'內建版本';
   var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
   var knowledge=getKnowledge().substring(0,10000);
-  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n【★各等級對應措施（最高指導原則，所有建議必須符合目前等級，嚴禁超前）】\nT1緊急戒備：尚未輻射外釋、輻射屬背景正常。官方僅景點關閉、勸離遊客、交通管制、整備。對民眾【不疏散、不掩蔽、不發碘片】，只需留意官方消息。\nT2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。\nT4輻射外釋：依指示疏散。\n【作答步驟】先判斷目前事故等級（有時間軸以最新一筆為準）→對照上面該等級該做什麼→只給符合該等級的建議。若是T1，建議應為「留意消息、配合管制、無須掩蔽或疏散」，嚴禁出現「立即室內掩蔽」「疏散某里」等超前指令，可告知民眾輻射正常以安定民心。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
+  var procCtx=await buildProcedureContext(currentPlant.name+' '+buildSimContextText(), 3);
+  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+procCtx+'\n\n【★各等級對應措施（最高指導原則，所有建議必須符合目前等級，嚴禁超前）】\nT1緊急戒備：尚未輻射外釋、輻射屬背景正常。官方僅景點關閉、勸離遊客、交通管制、整備。對民眾【不疏散、不掩蔽、不發碘片】，只需留意官方消息。\nT2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。\nT4輻射外釋：依指示疏散。\n【作答步驟】先判斷目前事故等級（有時間軸以最新一筆為準）→對照上面該等級該做什麼→只給符合該等級的建議。若是T1，建議應為「留意消息、配合管制、無須掩蔽或疏散」，嚴禁出現「立即室內掩蔽」「疏散某里」等超前指令，可告知民眾輻射正常以安定民心。\n【★建議分對象】每條建議標 audience 欄位："指揮官"(決策層級,參考程序書【指揮官決策】)、"應變組織"(各組執行任務,參考【應變組織任務】,action指出哪個組)、"民眾"(直接給民眾的防護行動)。盡量三種對象都涵蓋(若該等級有對應行動)。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"audience":"指揮官/應變組織/民眾","priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書/程序書/國際標準","source_name":"來源名稱","source_chapter":"§X.X章節或程序書編號","source_text":"原文片段","is_external":false}]}';
   try{
     var text=await callAI([{role:'user',content:prompt}],3000,0.3,false,true); // jsonMode 強制合法 JSON
     try{
@@ -1733,15 +1808,37 @@ async function generateAI(){
 
 function renderRecommendations(data){
   var pMap={'緊急':'p-urgent','高':'p-high','中':'p-medium','低':'p-low'};
+  // 對象標籤樣式
+  var audMap={
+    '指揮官':{bg:'rgba(220,38,38,0.1)',color:'#dc2626',border:'rgba(220,38,38,0.3)',icon:'⭐',label:'指揮官決策'},
+    '應變組織':{bg:'rgba(37,99,235,0.1)',color:'#2563eb',border:'rgba(37,99,235,0.3)',icon:'🛡',label:'應變組織任務'},
+    '民眾':{bg:'rgba(22,163,74,0.1)',color:'#16a34a',border:'rgba(22,163,74,0.25)',icon:'👥',label:'民眾防護'}
+  };
   var html='';
   if(data.situation_summary)html+='<div style="background:rgba(0,119,204,0.06);border:1px solid rgba(0,119,204,0.15);border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:14px;line-height:1.6;color:var(--text)">'+data.situation_summary+'</div>';
-  (data.recommendations||[]).forEach(function(r,i){
-    var pcls=pMap[r.priority]||'p-low';
-    var isExt=r.is_external===true;
-    var srcBadge=isExt?'<span style="font-size:12px;background:rgba(234,88,12,0.1);color:#ea580c;border:1px solid rgba(234,88,12,0.3);padding:1px 6px;border-radius:3px;font-family:var(--mono)">⚠ 國際標準</span>':'<span style="font-size:12px;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.25);padding:1px 6px;border-radius:3px;font-family:var(--mono)">計畫書</span>';
-    var recId='rec_'+Date.now()+'_'+i;
-    recStore[recId]=r;
-    html+='<div class="rec-card" id="'+recId+'"><div class="rec-header"><span class="rec-priority '+pcls+'">'+r.priority+'</span><span class="rec-title" style="flex:1">'+r.title+'</span>'+srcBadge+'</div><div class="rec-body">'+r.action+'</div><div class="rec-cite" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'block\'?\'none\':\'block\'">依據：'+(r.source_chapter||'')+' ('+(r.source_name||'')+') ▼</div><div class="rec-source">'+(r.source_text||'')+'<div style="margin-top:4px;color:var(--text-dim)">'+(r.reason||'')+'</div>'+(isExt?'<div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:4px;padding:6px;margin-top:5px;font-size:12px;color:#ea580c">⚠ 此建議非出自新北市計畫書，而是參考 <strong>'+(r.source_name||'國際標準')+'</strong></div>':'')+'</div><div class="rec-feedback"><button class="adopt-btn adopt-yes" onclick="adoptRec(\''+recId+'\',true,this)">✔ 已採納</button><button class="adopt-btn adopt-no" onclick="adoptRec(\''+recId+'\',false,this)">✘ 未採納</button><span style="font-size:12px;color:var(--text-dim);margin-left:auto" id="status_'+recId+'">待確認</span></div></div>';
+  var recs=(data.recommendations||[]);
+  // 依對象分組顯示：指揮官 → 應變組織 → 民眾 → 未標記
+  var order=['指揮官','應變組織','民眾'];
+  var hasAudience=recs.some(function(r){return r.audience;});
+  var groups={};
+  recs.forEach(function(r){ var a=r.audience||'其他'; (groups[a]=groups[a]||[]).push(r); });
+  var groupKeys = hasAudience ? order.concat(['其他']).filter(function(k){return groups[k];}) : ['其他'];
+  var gi=0;
+  groupKeys.forEach(function(gk){
+    if(hasAudience && audMap[gk]){
+      var a=audMap[gk];
+      html+='<div style="display:flex;align-items:center;gap:6px;margin:12px 0 6px;font-size:13px;font-weight:bold;color:'+a.color+'"><span>'+a.icon+'</span><span>'+a.label+'</span><span style="flex:1;height:1px;background:'+a.border+'"></span></div>';
+    }
+    (groups[gk]||[]).forEach(function(r){
+      var pcls=pMap[r.priority]||'p-low';
+      var isExt=r.is_external===true;
+      var srcBadge=isExt?'<span style="font-size:12px;background:rgba(234,88,12,0.1);color:#ea580c;border:1px solid rgba(234,88,12,0.3);padding:1px 6px;border-radius:3px;font-family:var(--mono)">⚠ 國際標準</span>':'<span style="font-size:12px;background:rgba(22,163,74,0.1);color:#16a34a;border:1px solid rgba(22,163,74,0.25);padding:1px 6px;border-radius:3px;font-family:var(--mono)">'+(r.source_type||'計畫書')+'</span>';
+      var audBadge='';
+      if(r.audience && audMap[r.audience]){ var av=audMap[r.audience]; audBadge='<span style="font-size:11px;background:'+av.bg+';color:'+av.color+';border:1px solid '+av.border+';padding:1px 5px;border-radius:3px;margin-right:4px">'+av.icon+av.audience+'</span>'; }
+      var recId='rec_'+Date.now()+'_'+(gi++);
+      recStore[recId]=r;
+      html+='<div class="rec-card" id="'+recId+'"><div class="rec-header"><span class="rec-priority '+pcls+'">'+r.priority+'</span><span class="rec-title" style="flex:1">'+audBadge+r.title+'</span>'+srcBadge+'</div><div class="rec-body">'+r.action+'</div><div class="rec-cite" onclick="var s=this.nextElementSibling;s.style.display=s.style.display===\'block\'?\'none\':\'block\'">依據：'+(r.source_chapter||'')+' ('+(r.source_name||'')+') ▼</div><div class="rec-source">'+(r.source_text||'')+'<div style="margin-top:4px;color:var(--text-dim)">'+(r.reason||'')+'</div>'+(isExt?'<div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.2);border-radius:4px;padding:6px;margin-top:5px;font-size:12px;color:#ea580c">⚠ 此建議非出自新北市計畫書，而是參考 <strong>'+(r.source_name||'國際標準')+'</strong></div>':'')+'</div><div class="rec-feedback"><button class="adopt-btn adopt-yes" onclick="adoptRec(\''+recId+'\',true,this)">✔ 已採納</button><button class="adopt-btn adopt-no" onclick="adoptRec(\''+recId+'\',false,this)">✘ 未採納</button><span style="font-size:12px;color:var(--text-dim);margin-left:auto" id="status_'+recId+'">待確認</span></div></div>';
+    });
   });
   if(data.knowledge_source)html+='<div style="font-size:12px;color:var(--text-dim);text-align:right;padding-top:6px;font-family:var(--mono)">知識來源：'+data.knowledge_source+'</div>';
   document.getElementById('recList').innerHTML=html;
@@ -2308,10 +2405,13 @@ async function sendQA() {
   var hospitalCtx = /醫院|輻傷|救治|急救/.test(q) ? buildHospitalContext() : '';
   var evacCtx = /集結|防護站|收容所|疏散|掩蔽|警示|閃|標示|標出|標記|標起|標一|高亮|發亮|點亮|亮起|顯示|指出|指給|這些|那些|它們|在哪|哪裡|哪些|位置|地圖|里|怎麼走|路線|路怎麼|怎麼去|壅塞|塞車|瓶頸|人數/.test(q) ? buildEvacPlacesContext(q) : '';
   var roadblockCtx = buildRoadblockContext();
+  // 程序書選擇性載入：依問題＋目前情境文字命中相關程序書（最多3份）
+  var procCtx = await buildProcedureContext(q + ' ' + buildSimContextText(), 3);
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+buildSimContextText()+
     '\n\n【計畫書】\n'+qaKb.substring(0,10000)+
     '\n\n'+buildZoneListText()+
+    procCtx+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
     '★事故等級準則（嚴格遵守）：T1緊急戒備僅警戒勸離交管【不疏散不掩蔽不發碘片】；T2廠區緊急0-3km疏散3-8km掩蔽發碘片；T3全面緊急3-8km下風向疏散其他掩蔽；T4輻射外釋依指示疏散。回答防護行動時務必先依目前事故等級判斷，不可建議超出當前等級的措施。若有「事故演進時間軸」，以最新一筆為當前狀態，並理解這是同一事故的連續升級。\n' +
@@ -2858,6 +2958,8 @@ async function generateScenarioAdvice(situation){
   var stSummary = allS.map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo2 = windDir !== null ? document.getElementById('windValue').textContent : '未知';
   var trafficCtx = tdxTrafficSummary ? ('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary) : '';
+  // 程序書選擇性載入：依情境文字命中相關程序書（情境建議給較多份，最多4份）
+  var procCtx = await buildProcedureContext(situation + ' ' + buildSimContextText(), 4);
   var prompt = '你是核子事故緊急應變AI助手，必須主動分析情境並給出具體行動建議。\n\n' +
     '【當前情境】\n' + situation + buildSimContextText() + '\n\n' +
     '【即時輻射數據】\n' + stSummary + '\n最高值：' + maxVal.toFixed(3) + ' μSv/h\n風向：' + windInfo2 + downwindInfo + trafficCtx + '\n\n' +
@@ -2869,6 +2971,7 @@ async function generateScenarioAdvice(situation){
     '碘片：T2及以上依指示服用，防甲狀腺危害\n' +
     '輻傷醫院：二級（淡水馬偕、基隆長庚、部立基隆、北海岸金山）、三級（台北馬偕、林口長庚、台北榮總）\n' +
     getKnowledge().substring(0,10000) + '\n\n' +
+    procCtx +
     '【★各事故等級對應措施（這是最高指導原則，所有建議都必須符合目前等級，嚴禁超前）】\n' +
     'T1 緊急戒備：此階段尚未發生輻射外釋、輻射屬背景正常範圍。官方僅進行「應變中心二級開設、劃設警戒區、關閉景點、勸離遊客、交通管制、整備準備」。對一般民眾而言【完全不需要疏散、不需要室內掩蔽、不需要服碘片】，只需「留意官方消息、配合管制」。\n' +
     'T2 廠區緊急：EPZ 0-3km 一般民眾預防性疏散及收容、EPZ 3-8km 室內掩蔽、碘片開始發放、警報發布。\n' +
@@ -2888,8 +2991,13 @@ async function generateScenarioAdvice(situation){
     '　- T2 範例：draw 至少要有 野柳里(疏散)、龜吼里(疏散) 兩個 alert_boro，加上 3-8km 各掩蔽里的 alert_boro。\n' +
     '　- T1 不需疏散掩蔽，draw 不輸出 alert_boro。\n' +
     '請依計畫書和目前情境，給出符合該等級、真正必要的防護建議——該幾條就幾條，不必湊數。若該等級只需少數行動（例如 T1 只需留意消息、配合管制），就只給那幾條；不要為了湊數而加入超出當前等級的建議。\n' +
+    '【★建議分對象（重要）】每條建議都要標 audience 欄位，區分這條是給誰的：\n' +
+    '　- "指揮官"：屬於指揮層級的決策（開設層級、是否發布警報、是否下令疏散/掩蔽、CBS發送、資源調度核定等）。參考程序書中標【指揮官決策】的內容。\n' +
+    '　- "應變組織"：屬於各應變組織的執行任務（疏散撤離組規劃路線、監測中心發警報偵測、新聞組對外溝通、劑量評估組評估等）。參考程序書中標【應變組織任務】的內容，並在 action 指出是哪個組。\n' +
+    '　- "民眾"：直接給一般民眾的防護行動（掩蔽、疏散、服碘片、留意消息）。\n' +
+    '　請盡量三種對象都涵蓋到（若該等級有對應行動）；同一情境下指揮官決策、應變組織任務、民眾行動可並存。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
-    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
+    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"audience":"指揮官/應變組織/民眾","priority":"緊急/高/中/低","title":"標題","action":"具體行動（應變組織需指出哪個組；指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書/程序書","source_name":"來源名稱","source_chapter":"§章節或程序書編號","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
   var text = await callAI([{role:'user',content:prompt}],3000,0.25,false,true);
   return parseAIJSON(text);
 }
