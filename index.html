@@ -1584,14 +1584,40 @@ function showKeyReminder(){
 function parseAIJSON(raw){
   var clean=String(raw).replace(/```json|```/g,'').trim();
   var j1=clean.indexOf('{'), j2=clean.lastIndexOf('}');
-  if(j1<0||j2<0) throw new Error('回應非 JSON 格式');
-  var body=clean.substring(j1,j2+1);
-  try{ return JSON.parse(body); }catch(e){}
-  var repaired=body
-    .replace(/[“”]/g,'"').replace(/[‘’]/g,"'")  // 智慧引號→直引號
-    .replace(/,\s*([}\]])/g,'$1');                                   // 去除尾逗號
-  try{ return JSON.parse(repaired); }catch(e){}
-  try{ return JSON.parse(repaired.replace(/\r/g,'').replace(/\n/g,' ')); }catch(e){} // 裸換行→空白
+  if(j1<0) throw new Error('回應非 JSON 格式');
+  // 正常情況：有完整 { ... }
+  if(j2>j1){
+    var body=clean.substring(j1,j2+1);
+    try{ return JSON.parse(body); }catch(e){}
+    var repaired=body
+      .replace(/[“”]/g,'"').replace(/[‘’]/g,"'")  // 智慧引號→直引號
+      .replace(/,\s*([}\]])/g,'$1');               // 去除尾逗號
+    try{ return JSON.parse(repaired); }catch(e){}
+    try{ return JSON.parse(repaired.replace(/\r/g,'').replace(/\n/g,' ')); }catch(e){} // 裸換行→空白
+  }
+  // 救援：JSON 被截斷（token 用完，沒寫完）→ 從開頭 { 起，補齊未閉合的字串/括號
+  try{
+    var frag = clean.substring(j1).replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+    var inStr=false, esc=false, stack=[];
+    for(var i=0;i<frag.length;i++){
+      var ch=frag[i];
+      if(esc){ esc=false; continue; }
+      if(ch==='\\'){ esc=true; continue; }
+      if(ch==='"'){ inStr=!inStr; continue; }
+      if(inStr) continue;
+      if(ch==='{'||ch==='[') stack.push(ch);
+      else if(ch==='}'||ch===']') stack.pop();
+    }
+    var fixed=frag;
+    if(inStr) fixed+='"';                 // 補未閉合字串
+    fixed=fixed.replace(/,\s*$/,'');       // 去掉結尾懸空逗號
+    // 由內而外補回未閉合括號
+    for(var k=stack.length-1;k>=0;k--){
+      fixed += (stack[k]==='{' ? '}' : ']');
+    }
+    fixed=fixed.replace(/,\s*([}\]])/g,'$1');
+    return JSON.parse(fixed);
+  }catch(e){}
   throw new Error('JSON 解析失敗');
 }
 
@@ -1677,7 +1703,7 @@ async function generateAI(){
   var knowledge=getKnowledge().substring(0,10000);
   var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n【★各等級對應措施（最高指導原則，所有建議必須符合目前等級，嚴禁超前）】\nT1緊急戒備：尚未輻射外釋、輻射屬背景正常。官方僅景點關閉、勸離遊客、交通管制、整備。對民眾【不疏散、不掩蔽、不發碘片】，只需留意官方消息。\nT2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。\nT4輻射外釋：依指示疏散。\n【作答步驟】先判斷目前事故等級（有時間軸以最新一筆為準）→對照上面該等級該做什麼→只給符合該等級的建議。若是T1，建議應為「留意消息、配合管制、無須掩蔽或疏散」，嚴禁出現「立即室內掩蔽」「疏散某里」等超前指令，可告知民眾輻射正常以安定民心。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
   try{
-    var text=await callAI([{role:'user',content:prompt}],1500,0.3,false,true); // jsonMode 強制合法 JSON
+    var text=await callAI([{role:'user',content:prompt}],3000,0.3,false,true); // jsonMode 強制合法 JSON
     try{
       renderRecommendations(parseAIJSON(text));
     }catch(pe){
@@ -2288,7 +2314,7 @@ async function sendQA() {
 
   try {
     // 問答用 70B 大模型（品質優先；8B 太笨會答錯、畫錯點）
-    var answer = await callAI(messages,1500,0.3,false,true); // jsonMode 強制合法 JSON
+    var answer = await callAI(messages,3000,0.3,false,true); // jsonMode 強制合法 JSON
 
     // ── 解析 AI 回傳的 JSON {"text":"...","draw":[...]} ──
     var displayText = answer;
@@ -2799,7 +2825,7 @@ async function generateScenarioAdvice(situation){
     '請依計畫書和目前情境，給出符合該等級、真正必要的防護建議——該幾條就幾條，不必湊數。若該等級只需少數行動（例如 T1 只需留意消息、配合管制），就只給那幾條；不要為了湊數而加入超出當前等級的建議。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
-  var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true);
+  var text = await callAI([{role:'user',content:prompt}],3000,0.25,false,true);
   return parseAIJSON(text);
 }
 
