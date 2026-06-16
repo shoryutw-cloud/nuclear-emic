@@ -747,9 +747,10 @@ async function loadShelterStatus(){
 }
 
 // 應變儀表板：集結點/防護站看啟動數、收容所看收容率
-async function renderDashboard(){
+// silent=true 時（自動更新）不顯示「載入中」spinner，避免每5秒閃爍
+async function renderDashboard(silent){
   var body=document.getElementById('dashboardBody'); if(!body) return;
-  body.innerHTML='<div style="text-align:center;padding:24px;color:var(--text-dim)"><span class="spinner spinner-dark"></span> 載入中…</div>';
+  if(!silent) body.innerHTML='<div style="text-align:center;padding:24px;color:var(--text-dim)"><span class="spinner spinner-dark"></span> 載入中…</div>';
   if(!evacLoaded){ try{ await loadEvacuationData(); }catch(e){} }
   var M=evacSheetData.meetings||[], S=evacSheetData.shields||[];
   var mAct=M.filter(function(x){return x.active;}).length, sAct=S.filter(function(x){return x.active;}).length;
@@ -799,8 +800,15 @@ async function renderDashboard(){
         '</div></div>';
     });
   }
-  html+='<div style="text-align:right;margin-top:6px;font-size:12px;color:var(--text-dim)">🔄 每5秒自動更新　<span style="font-family:var(--mono)">'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div>';
-  body.innerHTML=html;
+  var stamp='<div style="text-align:right;margin-top:6px;font-size:12px;color:var(--text-dim)">🔄 每5秒自動更新　<span style="font-family:var(--mono)">'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div>';
+  // silent（自動更新）時，內容沒變就不重設 DOM，避免閃爍；只更新時間戳
+  if(silent && body._lastHtml===html){
+    var stampEl=document.getElementById('dashStamp');
+    if(stampEl) stampEl.innerHTML='🔄 每5秒自動更新　<span style="font-family:var(--mono)">'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span>';
+    return;
+  }
+  body._lastHtml=html;
+  body.innerHTML=html+'<div id="dashStamp" style="text-align:right;margin-top:6px;font-size:12px;color:var(--text-dim)">🔄 每5秒自動更新　<span style="font-family:var(--mono)">'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div>';
 }
 document.addEventListener('keydown',function(e){
   if(e.key==='Escape'&&currentModal) closeModal(currentModal);
@@ -4017,7 +4025,7 @@ window.addEventListener('load',function(){
   setTimeout(function(){ loadHospitalData(); }, 1000);   // 背景預載輻傷醫院（從 Sheet）
   fetchWind();
   setInterval(fetchFromSheets, 5 * 1000); // 每5秒
-  setInterval(function(){ if(currentModal==='dashboard') renderDashboard(); }, 5 * 1000); // 儀表板開著時每5秒自動更新
+  setInterval(function(){ if(currentModal==='dashboard') renderDashboard(true); }, 5 * 1000); // 儀表板開著時每5秒自動更新（silent，不閃）
   // TDX 路況改為手動更新（按↻），不自動呼叫以節省用量
   document.getElementById('qaInput').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQA();}});
 });
