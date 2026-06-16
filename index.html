@@ -1654,7 +1654,7 @@ async function generateAI(){
   var windInfo=windDir!==null?document.getElementById('windValue').textContent:'未知';
   var knSrc=driveKnowledge?'Google Drive 最新版':'內建版本';
   var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
-  var knowledge=getKnowledge().substring(0,8000);
+  var knowledge=getKnowledge().substring(0,10000);
   var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
   try{
     var text=await callAI([{role:'user',content:prompt}],1500,0.3,false,true); // jsonMode 強制合法 JSON
@@ -2251,7 +2251,7 @@ async function sendQA() {
   var roadblockCtx = buildRoadblockContext();
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+buildSimContextText()+
-    '\n\n【計畫書】\n'+qaKb.substring(0,8000)+
+    '\n\n【計畫書】\n'+qaKb.substring(0,10000)+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
     '★你能操作這張地圖，請主動使用，不要只用文字描述。請以 JSON 回傳：{"text":"回答內容","draw":[...]}。\n' +
@@ -2716,7 +2716,7 @@ async function generateScenarioAdvice(situation){
     '疏散路線：D路線（往基隆東行）、E路線（台2→基金路→國道3→國道1→三重板橋）、F路線（往石門淡水西行）、G路線（→五股泰山）\n' +
     '碘片：T2及以上依指示服用，防甲狀腺危害\n' +
     '輻傷醫院：二級（淡水馬偕、基隆長庚、部立基隆、北海岸金山）、三級（台北馬偕、林口長庚、台北榮總）\n' +
-    getKnowledge().substring(0,8000) + '\n\n' +
+    getKnowledge().substring(0,10000) + '\n\n' +
     '請根據上述情境，主動給出3-4條具體行動建議：\n' +
     '1. 明確指出「哪些里」應疏散（下風向 0-3km 優先）、「哪些里」應室內掩蔽\n' +
     '2. 說明最佳疏散路線（避開下風向路線）及替代路線\n' +
@@ -2747,7 +2747,7 @@ async function generateAlertAI(over){
   var maxVal=over.reduce(function(m,s){return Math.max(m,s.value);},0);
   var desc=over.slice(0,3).map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo=document.getElementById('windValue').textContent;
-  var prompt='【緊急】核電廠周邊輻射超標，立即給出3條防護建議。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,8000)+'\n\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
+  var prompt='【緊急】核電廠周邊輻射超標，立即給出3條防護建議。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,10000)+'\n\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
   try{
     var text=await callAI([{role:'user',content:prompt}],600,0.2,false);
     aiDiv.innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text)">'+text.replace(/\n/g,'<br>')+'</div>';
@@ -2780,7 +2780,7 @@ async function submitFeedback(){
   var key=getActiveKey();
   if(!key){if(statusEl){statusEl.textContent='✘ 未採納';statusEl.style.color='#dc2626';}return;}
   var r=pendingFeedbackRec;
-  var prompt='你是知識庫管理AI。\n【建議】\n標題：'+(r&&r.title||'')+'\n行動：'+(r&&r.action||'')+'\n依據：'+(r&&r.source_chapter||'')+'\n\n【未採納原因】\n'+(reason||'（未填寫）')+'\n\n【現有知識庫節錄】\n'+getKnowledge().substring(0,1200)+'\n\n請輸出JSON判斷：{"needs_update":true/false,"has_conflict":true/false,"conflict_description":"衝突描述","update_content":"建議新增內容","is_special_case":true/false,"evaluation":"評估摘要（1句）"}';
+  var prompt='你是知識庫管理AI。\n【建議】\n標題：'+(r&&r.title||'')+'\n行動：'+(r&&r.action||'')+'\n依據：'+(r&&r.source_chapter||'')+'\n\n【未採納原因】\n'+(reason||'（未填寫）')+'\n\n【現有知識庫節錄】\n'+getKnowledge().substring(0,10000)+'\n\n請輸出JSON判斷：{"needs_update":true/false,"has_conflict":true/false,"conflict_description":"衝突描述","update_content":"建議新增內容","is_special_case":true/false,"evaluation":"評估摘要（1句）"}';
   try{
     var text=await callAI([{role:'user',content:prompt}],600,0.2,false);
     var j1=text.indexOf('{'),j2=text.lastIndexOf('}');
