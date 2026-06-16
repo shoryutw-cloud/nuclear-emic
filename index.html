@@ -2298,6 +2298,7 @@ async function sendQA() {
   var systemPrompt = '你是核子事故緊急應變AI助手，了解台灣道路地理，可提供實際路線建議。' +
     '\n\n【即時狀況】\n輻射測站：'+stSummary+'\n風向：'+windInfo+trafficCtx+buildSimContextText()+
     '\n\n【計畫書】\n'+qaKb.substring(0,10000)+
+    '\n\n'+buildZoneListText()+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
     '★事故等級準則（嚴格遵守）：T1緊急戒備僅警戒勸離交管【不疏散不掩蔽不發碘片】；T2廠區緊急0-3km疏散3-8km掩蔽發碘片；T3全面緊急3-8km下風向疏散其他掩蔽；T4輻射外釋依指示疏散。回答防護行動時務必先依目前事故等級判斷，不可建議超出當前等級的措施。若有「事故演進時間軸」，以最新一筆為當前狀態，並理解這是同一事故的連續升級。\n' +
@@ -2689,6 +2690,21 @@ async function runSimulate(){
 }
 
 
+// 從 VILLAGE_GEO 動態產生「各里距離分類」清單，注入 AI prompt（單一資料來源，永遠一致）
+function buildZoneListText(){
+  var z={};
+  Object.keys(VILLAGE_GEO).forEach(function(name){
+    var zone=VILLAGE_GEO[name].zone;
+    if(!z[zone]) z[zone]=[];
+    z[zone].push(name);
+  });
+  var t='【★各里精確距離分類（這是權威資料，判斷哪些里疏散/掩蔽務必依此，不可自行臆測距離）】\n';
+  if(z['0-3km']) t+='EPZ 0-3km（最優先疏散）：'+z['0-3km'].join('、')+'\n';
+  if(z['3-8km']) t+='EPZ 3-8km（T2掩蔽／T3下風向疏散其餘掩蔽）：'+z['3-8km'].join('、')+'\n';
+  if(z['8km外']) t+='EPZ 8km外：'+z['8km外'].join('、')+'\n';
+  return t;
+}
+
 // 保底：AI 判定 T2 以上但 draw 沒給 alert_boro 時，依等級自動補上里別閃爍框
 // 規則：T2 → 0-3km疏散、3-8km掩蔽；T3/T4 → 0-3km+3-8km下風向疏散、其餘掩蔽
 function ensureBoroAlerts(advice){
@@ -2834,9 +2850,8 @@ async function generateScenarioAdvice(situation){
     '【即時輻射數據】\n' + stSummary + '\n最高值：' + maxVal.toFixed(3) + ' μSv/h\n風向：' + windInfo2 + downwindInfo + trafficCtx + '\n\n' +
     '【應變計畫書核心知識】\n' +
     '電廠：' + currentPlant.name + '\n' +
-    '（以下村里清單僅供「當事故等級確實需要疏散或掩蔽時」參考，T1 等不需防護行動的階段請勿使用）\n' +
-    'EPZ 0-3km村里（T2才開始預防疏散）：野柳里、龜吼里（萬里區南部）\n' +
-    'EPZ 3-8km村里（T2掩蔽／T3下風向疏散）：萬里里、北基里、大鵬里、中幅里、崁腳里、溪底里、磺潭里、雙興里（萬里區）及金山區各里（磺港里、美田里、大同里、五湖里、六股里、西湖里、三界里、和平里、重和里、清泉里、萬壽里、金美里、兩湖里、永興里）\n' +
+    buildZoneListText() +
+    '（上面的距離分類為權威資料，僅當事故等級確實需要疏散或掩蔽時才使用；T1 等不需防護行動的階段請勿使用）\n' +
     '疏散路線：D路線（往基隆東行）、E路線（台2→基金路→國道3→國道1→三重板橋）、F路線（往石門淡水西行）、G路線（→五股泰山）\n' +
     '碘片：T2及以上依指示服用，防甲狀腺危害\n' +
     '輻傷醫院：二級（淡水馬偕、基隆長庚、部立基隆、北海岸金山）、三級（台北馬偕、林口長庚、台北榮總）\n' +
