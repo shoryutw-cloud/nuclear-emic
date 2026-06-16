@@ -443,7 +443,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 <!-- 應變儀表板 Modal -->
 <div class="modal-overlay" id="modal-dashboard">
   <div class="modal-panel">
-    <div class="modal-header"><h3>應變儀表板</h3><button class="modal-close" onclick="closeModal('dashboard')">×</button></div>
+    <div class="modal-header"><h3>各站點開設情形</h3><button class="modal-close" onclick="closeModal('dashboard')">×</button></div>
     <div class="modal-body" id="dashboardBody"></div>
   </div>
 </div>
@@ -798,7 +798,7 @@ async function renderDashboard(){
         '</div></div>';
     });
   }
-  html+='<div style="text-align:right;margin-top:6px"><button onclick="renderDashboard()" style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer">↻ 重新整理</button></div>';
+  html+='<div style="text-align:right;margin-top:6px;font-size:12px;color:var(--text-dim)">🔄 每5秒自動更新　<span style="font-family:var(--mono)">'+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div>';
   body.innerHTML=html;
 }
 document.addEventListener('keydown',function(e){
@@ -3865,6 +3865,7 @@ window.addEventListener('load',function(){
   setTimeout(function(){ loadHospitalData(); }, 1000);   // 背景預載輻傷醫院（從 Sheet）
   fetchWind();
   setInterval(fetchFromSheets, 5 * 1000); // 每5秒
+  setInterval(function(){ if(currentModal==='dashboard') renderDashboard(); }, 5 * 1000); // 儀表板開著時每5秒自動更新
   // TDX 路況改為手動更新（按↻），不自動呼叫以節省用量
   document.getElementById('qaInput').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendQA();}});
 });
