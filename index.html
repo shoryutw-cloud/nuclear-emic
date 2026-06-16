@@ -52,7 +52,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
 .modal-overlay.open{display:block}
 .modal-panel{background:#fff;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.2);width:420px;max-height:calc(100vh - 90px);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;animation:slideIn 0.2s ease}
 @keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
-.modal-header{background:var(--navy);color:#fff;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-header{background:var(--navy);color:#fff;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;cursor:move;user-select:none;touch-action:none}
 .modal-header h3{font-size:16px;font-weight:500}
 .modal-close{background:none;border:none;color:rgba(255,255,255,0.7);font-size:20px;cursor:pointer;line-height:1}
 .modal-close:hover{color:#fff}
@@ -716,7 +716,12 @@ function openModal(name) {
   if (currentModal === name) { closeModal(name); return; }
   document.querySelectorAll('.modal-overlay').forEach(function(m){m.classList.remove('open');});
   document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active');});
-  var el = document.getElementById('modal-'+name); if(el) el.classList.add('open');
+  var el = document.getElementById('modal-'+name);
+  if(el){
+    // 重開時回到預設右上角位置（清掉上次拖曳留下的 left/top）
+    el.style.left=''; el.style.top=''; el.style.right='';
+    el.classList.add('open');
+  }
   document.querySelectorAll('.nav-item').forEach(function(n){
     if((n.getAttribute('onclick')||'').indexOf("'"+name+"'")>=0) n.classList.add('active');
   });
@@ -4017,6 +4022,7 @@ window.addEventListener('load',function(){
   setTimeout(function(){ _islandWarnReady = true; console.log('孤島示警已啟用'); }, 8000);
   setTimeout(function(){if(map)map.invalidateSize();},200);
   initBirdDrag();
+  initModalDrag();
   fetchKnowledge('nuclear2'); // 預設核二廠
   setTimeout(function(){ fetchKnowledge('nuclear3'); }, 3000); // 背景預載核三廠
   setTimeout(function(){ fetchKnowledge('nuclear1'); }, 6000); // 背景預載核一廠
@@ -4116,6 +4122,54 @@ function watchPanelResize() {
 }
 
 // 初始化鳥的拖曳事件（在 initMap 後呼叫）
+// 讓所有目錄叫出的 modal 視窗可抓頂端標題列拖曳移動（滑鼠＋觸控）
+function initModalDrag(){
+  document.querySelectorAll('.modal-overlay').forEach(function(overlay){
+    var header = overlay.querySelector('.modal-header');
+    var panel  = overlay.querySelector('.modal-panel');
+    if(!header || !panel) return;
+
+    function startDrag(clientX, clientY){
+      // 把 panel 從預設的 right 定位改為 left/top 絕對定位，第一次拖曳時先鎖定目前位置
+      var rect = panel.getBoundingClientRect();
+      overlay.style.right = 'auto';
+      overlay.style.left  = rect.left + 'px';
+      overlay.style.top   = rect.top  + 'px';
+      return { ox: clientX - rect.left, oy: clientY - rect.top };
+    }
+    function moveTo(clientX, clientY, off){
+      var pw = panel.offsetWidth, ph = panel.offsetHeight;
+      var nl = clientX - off.ox, nt = clientY - off.oy;
+      // 限制在視窗內，至少露出標題列
+      nl = Math.max(0, Math.min(nl, window.innerWidth  - pw));
+      nt = Math.max(0, Math.min(nt, window.innerHeight - 40));
+      overlay.style.left = nl + 'px';
+      overlay.style.top  = nt + 'px';
+    }
+
+    // 滑鼠
+    header.addEventListener('mousedown', function(e){
+      if(e.target.closest('.modal-close')) return; // 按關閉鈕不拖
+      e.preventDefault();
+      var off = startDrag(e.clientX, e.clientY);
+      function mv(ev){ moveTo(ev.clientX, ev.clientY, off); }
+      function up(){ document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); }
+      document.addEventListener('mousemove', mv);
+      document.addEventListener('mouseup', up);
+    });
+    // 觸控
+    header.addEventListener('touchstart', function(e){
+      if(e.target.closest('.modal-close')) return;
+      var t = e.touches[0];
+      var off = startDrag(t.clientX, t.clientY);
+      function mv(ev){ var tt=ev.touches[0]; moveTo(tt.clientX, tt.clientY, off); ev.preventDefault(); }
+      function end(){ document.removeEventListener('touchmove', mv); document.removeEventListener('touchend', end); }
+      document.addEventListener('touchmove', mv, {passive:false});
+      document.addEventListener('touchend', end);
+    }, {passive:true});
+  });
+}
+
 function initBirdDrag() {
   var bird = getBird();
   bird.addEventListener('mousedown', function(e) {
