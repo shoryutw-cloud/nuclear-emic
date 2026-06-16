@@ -2796,7 +2796,7 @@ async function generateScenarioAdvice(situation){
     '　- 若目前是 T2 以上：才依下風向與 EPZ 距離指出哪些里疏散、哪些里掩蔽，並對應輸出 alert_boro。\n' +
     '步驟4：若有次生災害，補充說明影響。\n' +
     '步驟5：draw 規則：僅當當前等級需要疏散時對該里輸出 alert_boro(mode:疏散)、需要掩蔽時輸出 alert_boro(mode:掩蔽)；T1 不輸出 alert_boro。\n' +
-    '請給出 3-4 條符合目前等級的建議。\n' +
+    '請依計畫書和目前情境，給出符合該等級、真正必要的防護建議——該幾條就幾條，不必湊數。若該等級只需少數行動（例如 T1 只需留意消息、配合管制），就只給那幾條；不要為了湊數而加入超出當前等級的建議。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
   var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true);
@@ -2821,7 +2821,7 @@ async function generateAlertAI(over){
   var maxVal=over.reduce(function(m,s){return Math.max(m,s.value);},0);
   var desc=over.slice(0,3).map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo=document.getElementById('windValue').textContent;
-  var prompt='【緊急】核電廠周邊輻射超標，立即給出3條防護建議。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,10000)+'\n\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
+  var prompt='【緊急】核電廠周邊輻射超標。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,10000)+'\n\n請先依輻射值與計畫書判斷目前事故等級（0.2μSv/h以下屬正常背景；0.2~20執行T1/T2；20以上執行T3/T4），再依該等級給出真正必要的防護建議——該幾條就幾條，不必湊數，不要給超出當前等級的行動。\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
   try{
     var text=await callAI([{role:'user',content:prompt}],600,0.2,false);
     aiDiv.innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text)">'+text.replace(/\n/g,'<br>')+'</div>';
