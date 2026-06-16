@@ -417,7 +417,7 @@ body{display:flex;flex-direction:column;background:#f0f4f8}
       <div class="sec-label">圖層開關</div>
       <div class="layer-grid">
         <div class="layer-toggle on" id="lt-epz"      onclick="toggleLayerPanel('epz','lt-epz')">EPZ 範圍圈</div>
-        <div class="layer-toggle on" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">輻射測站</div>
+        <div class="layer-toggle" id="lt-station"  onclick="toggleLayerPanel('station','lt-station')">輻射測站</div>
         <div class="layer-toggle" id="lt-hospital" onclick="toggleLayerPanel('hospital','lt-hospital')">輻傷醫院</div>
         <div class="layer-toggle" id="lt-aiRoute" onclick="clearAIRoute();this.classList.remove('on')" style="grid-column:span 2;color:#2563eb" title="路線由 OSRM 路網引擎計算；AI 僅決定起終點與繞道建議">清除規劃路線</div>
       </div>
