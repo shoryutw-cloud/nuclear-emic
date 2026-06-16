@@ -517,7 +517,8 @@ var THRESHOLD_WARN = 0.2, THRESHOLD_ALERT = 100; // 警戒 0.2（橘）、緊急
 // ── 全域變數 ──────────────────────────────────────────────────
 var map, baseLayers = {}, layerGroups = {};
 var stations = [], manualData = [], simMode = false;
-var simContext = null;     // 目前模擬情境（電廠/等級/輻射/次生災害/現場描述），注入所有 AI 對話
+var simContext = null;     // 目前模擬情境（最新一筆，向後相容）
+var simTimeline = [];      // 事件歷程陣列：同一事故 T1→T2→T3 連續演進的時間軸
 var lastSimAdvice = null;  // 模擬產生的完整建議（parsed），供「完整 AI 建議」重用，避免重複呼叫
 var windDir = null, windSpeed = null;
 var driveKnowledge = '', tdxTrafficSummary = '';
@@ -1594,19 +1595,38 @@ function parseAIJSON(raw){
   throw new Error('JSON 解析失敗');
 }
 
-// 把目前模擬情境組成可注入 AI 的文字（無情境則回空字串）
+// 把模擬情境組成可注入 AI 的文字（輸出完整事件時間軸；無情境則回空字串）
 function buildSimContextText(){
-  if(!simContext) return '';
-  var d = (simContext.disasters && simContext.disasters.length) ? simContext.disasters.join('、') : '無';
-  var docPart = '';
-  if(simContext.docText){
-    var dt = simContext.docText.length>3000 ? simContext.docText.substring(0,3000) : simContext.docText;
-    docPart = '\n\n【現場文件內容：'+(simContext.docName||'上傳文件')+'】（使用者提供，請一併納入研判）\n'+dt;
+  if(!simContext && (!simTimeline || !simTimeline.length)) return '';
+  // 單筆（向後相容：若 timeline 空但有 simContext）
+  if(!simTimeline || !simTimeline.length){
+    var d0 = (simContext.disasters && simContext.disasters.length) ? simContext.disasters.join('、') : '無';
+    var docPart0 = '';
+    if(simContext.docText){
+      var dt0 = simContext.docText.length>3000 ? simContext.docText.substring(0,3000) : simContext.docText;
+      docPart0 = '\n\n【現場文件內容：'+(simContext.docName||'上傳文件')+'】（使用者提供，請一併納入研判）\n'+dt0;
+    }
+    return '\n\n【目前模擬情境】（使用者已設定，所有建議請依此情境）\n' +
+      '電廠：'+simContext.plant+'\n事故等級：'+simContext.level+
+      '\n風向：'+(simContext.windText||'未指定')+
+      '\n最高輻射：'+simContext.value+' μSv/h\n次生災害：'+d0+
+      (simContext.desc?('\n現場狀況：'+simContext.desc):'') + docPart0;
   }
-  return '\n\n【目前模擬情境】（使用者已設定，所有建議請依此情境）\n' +
-    '電廠：'+simContext.plant+'\n事故等級：'+simContext.level+
-    '\n最高輻射：'+simContext.value+' μSv/h\n次生災害：'+d+
-    (simContext.desc?('\n現場狀況：'+simContext.desc):'') + docPart;
+  // 多筆：輸出完整時間軸，強調這是同一事故的連續演進
+  var latest = simTimeline[simTimeline.length-1];
+  var txt = '\n\n【事故演進時間軸】（★重要：以下是「同一起核子事故」隨時間逐步升級的連續記錄，不是多起獨立事件。請理解事故如何從初期演變到目前，並以「最新一筆」為當前狀態給建議）\n';
+  simTimeline.forEach(function(s,i){
+    var d = (s.disasters && s.disasters.length) ? s.disasters.join('、') : '無';
+    txt += '─────\n第'+(i+1)+'階段　時間：'+s.time+(i===simTimeline.length-1?'　◀ 目前狀態':'')+'\n'+
+      '　事故等級：'+s.level+'\n　風向：'+(s.windText||'未指定')+'\n　最高輻射：'+s.value+' μSv/h\n　次生災害：'+d+
+      (s.desc?('\n　現場狀況：'+s.desc):'')+'\n';
+  });
+  // 最新一筆的上傳文件（只附最新的，避免太長）
+  if(latest.docText){
+    var dtL = latest.docText.length>3000 ? latest.docText.substring(0,3000) : latest.docText;
+    txt += '\n【最新階段現場文件：'+(latest.docName||'上傳文件')+'】（使用者提供，請一併納入研判）\n'+dtL;
+  }
+  return txt;
 }
 
 // 把模擬情境寫入 Sheet（記錄用，best-effort）
@@ -1655,7 +1675,7 @@ async function generateAI(){
   var knSrc=driveKnowledge?'Google Drive 最新版':'內建版本';
   var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
   var knowledge=getKnowledge().substring(0,10000);
-  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
+  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+'\n\n【★事故等級行動準則（嚴格遵守，不可超前）】T1緊急戒備：僅注意消息、警戒區劃設、遊客勸離、交通管制，【不疏散、不掩蔽、不發碘片】。T2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。T3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。T4輻射外釋：依指示疏散。請先判斷目前等級，僅給該等級對應措施。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書或國際標準","source_name":"新北市計畫書或IAEA XXX","source_chapter":"§X.X章節","source_text":"原文片段","is_external":false}]}';
   try{
     var text=await callAI([{role:'user',content:prompt}],1500,0.3,false,true); // jsonMode 強制合法 JSON
     try{
@@ -2254,6 +2274,7 @@ async function sendQA() {
     '\n\n【計畫書】\n'+qaKb.substring(0,10000)+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
+    '★事故等級準則（嚴格遵守）：T1緊急戒備僅警戒勸離交管【不疏散不掩蔽不發碘片】；T2廠區緊急0-3km疏散3-8km掩蔽發碘片；T3全面緊急3-8km下風向疏散其他掩蔽；T4輻射外釋依指示疏散。回答防護行動時務必先依目前事故等級判斷，不可建議超出當前等級的措施。若有「事故演進時間軸」，以最新一筆為當前狀態，並理解這是同一事故的連續升級。\n' +
     '★你能操作這張地圖，請主動使用，不要只用文字描述。請以 JSON 回傳：{"text":"回答內容","draw":[...]}。\n' +
     '★只要回答涉及任何具體地點、集結點、里別、防護站、收容所、醫院或路線，draw 就【必須】輸出對應圖形。\n' +
     '★當使用者說「標示／標出／標起來／顯示／指出／點亮／發亮／高亮／閃一下／在哪／給我看」某些集結點或里別時：對每個相關里別輸出一個 alert_boro（讓該里集結點發亮）；若指名個別地點則用 marker。\n' +
@@ -2418,6 +2439,14 @@ function simulateAccident(){
   // 輻射值
   h+='<div style="margin-bottom:10px"><label style="'+lbl+'">最高輻射值 (μSv/h)</label>'
     +'<input type="number" id="simValue" value="2.5" step="0.1" min="0" style="'+inp+'"></div>';
+  // 風向（打字輸入）
+  h+='<div style="margin-bottom:10px"><label style="'+lbl+'">風向（打字輸入，例：西風、西北風、315度、從西邊吹來）</label>'
+    +'<input type="text" id="simWind" placeholder="例：西北風 或 315度" style="'+inp+'"></div>';
+  // 接續/全新事件
+  h+='<div style="margin-bottom:10px;padding:9px 11px;background:#f0f6ff;border:1px solid #c5d3e0;border-radius:6px">'
+    +'<label style="font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:600;color:var(--navy)">'
+    +'<input type="checkbox" id="simContinue" checked> 接續目前事件（時序演進，AI 會理解為同一事故升級）</label>'
+    +'<div style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.5">勾選：本次設定接在事故時間軸後面（例 T1→T2）。<br>取消勾選：清空歷程，開始一起全新獨立事故。</div></div>';
   // 現場狀況描述
   h+='<div style="margin-bottom:10px"><label style="'+lbl+'">現場狀況描述</label>'
     +'<textarea id="simDesc" rows="3" placeholder="例：台2線金山段因地震路面龜裂，往基隆方向通行困難" style="'+inp+';resize:vertical"></textarea></div>';
@@ -2541,6 +2570,7 @@ function applyPastSim(idx){
   var el=document.getElementById('simLevel'); if(el && c.level) el.value=c.level;
   var ev=document.getElementById('simValue'); if(ev && c.value) ev.value=parseFloat(c.value)||2.5;
   var ed=document.getElementById('simDesc'); if(ed) ed.value=c.desc||'';
+  var ew=document.getElementById('simWind'); if(ew) ew.value=c.windText||'';
   // 次生災害勾選
   document.getElementById('simEQ').checked = c.disasters.indexOf('地震')>=0;
   document.getElementById('simTY').checked = c.disasters.indexOf('颱風')>=0;
@@ -2559,16 +2589,51 @@ function applyPastSim(idx){
   var ef=document.getElementById('simDocFile'); if(ef) ef.value='';
 }
 
+// 把風向文字解析成氣象角度（從哪個方向吹來）。解析不出則回 null
+function parseWindText(txt){
+  if(!txt) return null;
+  txt = txt.trim();
+  // 直接是數字角度
+  var deg = txt.match(/(\d+(?:\.\d+)?)\s*度?/);
+  // 先處理方位詞（中文），對應「風從哪來」的氣象角度
+  var map = {
+    '北':0,'北風':0,'偏北':0,
+    '東北':45,'東北風':45,'北東':45,
+    '東':90,'東風':90,'偏東':90,
+    '東南':135,'東南風':135,'南東':135,
+    '南':180,'南風':180,'偏南':180,
+    '西南':225,'西南風':225,'南西':225,
+    '西':270,'西風':270,'偏西':270,
+    '西北':315,'西北風':315,'北西':315
+  };
+  // 方位詞優先（避免「315度」被當方位）；先找最長匹配
+  var keys = Object.keys(map).sort(function(a,b){return b.length-a.length;});
+  for(var i=0;i<keys.length;i++){
+    if(txt.indexOf(keys[i])>=0) return map[keys[i]];
+  }
+  if(deg){ var dv=parseFloat(deg[1]); if(!isNaN(dv)) return ((dv%360)+360)%360; }
+  return null;
+}
+
 async function runSimulate(){
   var plantKey=document.getElementById('simPlant').value;
   var plant=PLANTS[plantKey]||PLANTS.nuclear2;
   var level=document.getElementById('simLevel').value;
   var value=parseFloat(document.getElementById('simValue').value)||2.5;
   var desc=document.getElementById('simDesc').value.trim();
+  var windText=(document.getElementById('simWind')&&document.getElementById('simWind').value.trim())||'';
+  var continueEvent=document.getElementById('simContinue')?document.getElementById('simContinue').checked:false;
   var disasters=[document.getElementById('simEQ').checked&&'地震',document.getElementById('simTY').checked&&'颱風',document.getElementById('simFlood').checked&&'水災',document.getElementById('simFire').checked&&'火災'].filter(Boolean);
   currentPlant=plant;simMode=true;
-  // 記住情境（全域→注入所有 AI 對話）＋寫入 Sheet 記錄
-  simContext={plant:plant.name,level:level,value:value.toFixed(2),disasters:disasters,desc:desc,docText:simDocText||'',docName:simDocName||'',time:new Date().toLocaleString('zh-TW',{hour12:false})};
+  // 風向：打字輸入優先，解析成角度驅動地圖下風向標示
+  var windDeg=parseWindText(windText);
+  if(windDeg!==null){ windDir=windDeg; updateWindDisplay(windDir, windSpeed||3.0, '模擬情境設定'); }
+  // 本次情境快照
+  var nowTime=new Date().toLocaleString('zh-TW',{hour12:false});
+  simContext={plant:plant.name,level:level,value:value.toFixed(2),disasters:disasters,desc:desc,windText:windText,windDeg:windDeg,docText:simDocText||'',docName:simDocName||'',time:nowTime};
+  // 時間軸：接續則 push，全新則清空後 push
+  if(!continueEvent) simTimeline=[];
+  simTimeline.push(simContext);
   lastSimAdvice=null;
   saveSimContextToSheet(simContext);
   map.setView([plant.lat,plant.lng],plant.zoom);
@@ -2717,12 +2782,18 @@ async function generateScenarioAdvice(situation){
     '碘片：T2及以上依指示服用，防甲狀腺危害\n' +
     '輻傷醫院：二級（淡水馬偕、基隆長庚、部立基隆、北海岸金山）、三級（台北馬偕、林口長庚、台北榮總）\n' +
     getKnowledge().substring(0,10000) + '\n\n' +
-    '請根據上述情境，主動給出3-4條具體行動建議：\n' +
-    '1. 明確指出「哪些里」應疏散（下風向 0-3km 優先）、「哪些里」應室內掩蔽\n' +
-    '2. 說明最佳疏散路線（避開下風向路線）及替代路線\n' +
-    '3. 說明碘片服用時機、輻傷醫院\n' +
+    '【★事故等級行動準則（務必嚴格遵守，不可超前部署）】\n' +
+    'T1 緊急戒備：僅「注意消息、應變中心二級開設、劃設警戒區、遊客勸離、交通管制」。此階段【不需要】疏散，也【不需要】室內掩蔽，【不發放碘片】。除非有次生災害另需處置，否則絕不可在 T1 建議民眾掩蔽或疏散。\n' +
+    'T2 廠區緊急：EPZ 0-3km 一般民眾預防性疏散及收容、EPZ 3-8km 室內掩蔽、碘片開始發放、開設防護站與避難收容處所、警報發布。\n' +
+    'T3 全面緊急：EPZ 3-8km 下風向民眾預作疏散、其他區域維持室內掩蔽、防護站除污偵檢作業啟動。\n' +
+    'T4 輻射外釋：依指示疏散 EPZ 3-8km 下風向、準備 8km 以外下風向疏散。\n' +
+    '→ 請先判斷目前等級，嚴格依該等級對應的措施給建議，不可給超出當前等級的行動（例如 T1 不可叫人掩蔽/疏散）。\n\n' +
+    '請根據上述情境與「目前最新等級」，主動給出 3-4 條符合該等級的具體行動建議：\n' +
+    '1. 若當前等級需要疏散/掩蔽，明確指出「哪些里」應疏散（下風向 0-3km 優先）、「哪些里」應室內掩蔽；若當前等級（如 T1）尚不需要，則不要列出疏散/掩蔽里。\n' +
+    '2. 說明最佳疏散路線（避開下風向路線）及替代路線（僅在需要疏散時）\n' +
+    '3. 說明碘片服用時機（T2 以上）、輻傷醫院\n' +
     '4. 若有次生災害，說明影響\n' +
-    '5. 在 draw 陣列中標示危險區域、下風向疏散範圍\n' +
+    '5. ★draw 陣列規則：當且僅當當前等級需要時，對每個應「疏散」的里輸出一個 alert_boro（mode:疏散），對每個應「室內掩蔽」的里也各輸出一個 alert_boro（mode:掩蔽）。T1 等不需疏散掩蔽的等級，draw 不要輸出 alert_boro。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
     '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"priority":"緊急/高/中/低","title":"標題","action":"具體行動（指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書","source_name":"新北市計畫書","source_chapter":"§章節","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
   var text = await callAI([{role:'user',content:prompt}],1800,0.25,false,true);
