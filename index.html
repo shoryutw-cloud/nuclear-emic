@@ -2589,6 +2589,7 @@ async function sendQA() {
     procCtx+
     hospitalCtx+evacCtx+roadblockCtx+
     '\n\n回答規則：繁體中文、直接回答；問路線/醫院時說明具體道路名稱並引用計畫書章節。\n' +
+    '★排版規則（重要，務必遵守）：(1)絕對不要使用星號「*」或「**」做標記。(2)若建議分指揮官與應變組織，請用「【指揮官決策建議】」「【應變組織任務】」當區塊標題分段。(3)每條建議用「1. 標題：」格式，標題後接冒號然後「換行」再寫內容，不要把標題和內容擠在同一行。(4)對民眾的防護行動（疏散/掩蔽/碘片/警報）屬指揮官決策權責，歸在【指揮官決策建議】，不要標成民眾自己決定。\n' +
     '★事故等級準則（嚴格遵守）：T1緊急戒備僅警戒勸離交管【不疏散不掩蔽不發碘片】；T2廠區緊急0-3km疏散3-8km掩蔽發碘片；T3全面緊急3-8km下風向疏散其他掩蔽；T4輻射外釋依指示疏散。回答防護行動時務必先依目前事故等級判斷，不可建議超出當前等級的措施。若有「事故演進時間軸」，以最新一筆為當前狀態，並理解這是同一事故的連續升級。\n' +
     '★你能操作這張地圖，請主動使用，不要只用文字描述。請以 JSON 回傳：{"text":"回答內容","draw":[...]}。\n' +
     '★只要回答涉及任何具體地點、集結點、里別、防護站、收容所、醫院或路線，draw 就【必須】輸出對應圖形。\n' +
@@ -2690,10 +2691,29 @@ async function fetchQAHistory(rounds) {
 
 
 function quickAsk(q){document.getElementById('qaInput').value=q;sendQA();}
+// 美化 QA/建議文字：去星號、標題上色、對象區塊上色、冒號後換行
+function formatQAText(text){
+  if(!text) return '';
+  var t = escHtml(text);
+  // 區塊標題：【指揮官決策…】紅、【應變組織…】藍
+  t = t.replace(/【\s*(指揮官[^】]*)\s*】/g, '<div style="display:inline-block;background:rgba(220,38,38,0.1);color:#dc2626;border:1px solid rgba(220,38,38,0.3);font-weight:bold;padding:2px 10px;border-radius:5px;margin:2px 0">⭐ $1</div>');
+  t = t.replace(/【\s*(應變組織[^】]*)\s*】/g, '<div style="display:inline-block;background:rgba(37,99,235,0.1);color:#2563eb;border:1px solid rgba(37,99,235,0.3);font-weight:bold;padding:2px 10px;border-radius:5px;margin:2px 0">🛡 $1</div>');
+  // 條列標題：1. **標題**：內容 → 標題上色、冒號後換行
+  // 先處理 **粗體**（含在編號後當小標題）
+  t = t.replace(/(\d+)\.\s*\*\*(.+?)\*\*\s*[:：]?\s*/g, '<div style="margin-top:8px"><span style="display:inline-block;background:#eef2f7;color:#1a3a5c;font-weight:bold;padding:1px 8px;border-radius:4px;margin-bottom:2px">$1. $2</span><br></div>');
+  // 其餘獨立 **粗體** → 深色粗體（無星號）
+  t = t.replace(/\*\*(.+?)\*\*/g, '<b style="color:#1a3a5c">$1</b>');
+  // 殘留單顆星號清掉
+  t = t.replace(/\*/g, '');
+  // 換行
+  t = t.replace(/\n/g, '<br>');
+  return t;
+}
+
 function addQAMessage(text,role){
   var el=document.getElementById('qaMessages');
   var div=document.createElement('div');div.className='qa-msg '+role;
-  if(role==='ai')div.innerHTML='<div class="msg-label">AI 建議</div>'+text.replace(/\n/g,'<br>');
+  if(role==='ai')div.innerHTML='<div class="msg-label">AI 建議</div>'+formatQAText(text);
   else div.textContent=text;
   el.appendChild(div);el.scrollTop=el.scrollHeight;
   return div;
@@ -2702,7 +2722,7 @@ function addQAMessage(text,role){
 // 更新 AI 訊息泡泡內容（保留標籤）
 function setQAMessageText(div, text){
   if(!div) return;
-  div.innerHTML='<div class="msg-label">AI 建議</div>'+text.replace(/\n/g,'<br>');
+  div.innerHTML='<div class="msg-label">AI 建議</div>'+formatQAText(text);
   var el=document.getElementById('qaMessages'); if(el) el.scrollTop=el.scrollHeight;
 }
 
