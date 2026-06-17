@@ -3221,7 +3221,7 @@ async function generateAlertAI(over){
   var maxVal=over.reduce(function(m,s){return Math.max(m,s.value);},0);
   var desc=over.slice(0,3).map(function(s){return s.name+': '+s.value.toFixed(3)+' μSv/h';}).join('、');
   var windInfo=document.getElementById('windValue').textContent;
-  var prompt='【緊急】核電廠周邊輻射超標。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,10000)+'\n\n請先依輻射值與計畫書判斷目前事故等級（0.2μSv/h以下屬正常背景；0.2~20執行T1/T2；20以上執行T3/T4），再依該等級給出真正必要的防護建議——該幾條就幾條，不必湊數，不要給超出當前等級的行動。\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
+  var prompt='【緊急】核電廠周邊偵測到輻射異常。\n超標測站：'+desc+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+'\n\n'+getKnowledge().substring(0,10000)+'\n\n【重要限制】事故等級（T1/T2/T3/T4）由電廠廠況決定，由台電初判、核安會複判，不由場外輻射劑量值決定。場外劑量超標是民眾防護行動的參考依據，但不等同於事故等級宣告。目前僅偵測到場外輻射異常，尚未取得電廠事故等級官方確認，請勿將劑量數值直接對應為事故等級。請依現有資訊給出初步防護參考建議，並提醒應確認電廠事故等級後再執行正式防護行動。\n每條格式：【優先級】行動（依據：§章節號）\n繁體中文，簡潔直接。';
   try{
     var text=await callAI([{role:'user',content:prompt}],600,0.2,false);
     aiDiv.innerHTML='<div style="font-size:14px;line-height:1.8;color:var(--text)">'+text.replace(/\n/g,'<br>')+'</div>';
