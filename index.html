@@ -1752,11 +1752,12 @@ function saveSimContextToSheet(c){
 // 模擬視窗用的精簡建議摘要（與鳥面板共用同一份 AI 回應）
 function renderAdviceSummaryHTML(a){
   if(!a) return '<div style="color:var(--text-dim);font-size:13px">無建議內容</div>';
-  var audIcon={'指揮官':'⭐','應變組織':'🛡','民眾':'👥'};
+  var audIcon={'指揮官':'⭐','應變組織':'🛡'};
   var html='';
   if(a.situation_summary) html+='<div style="background:rgba(0,119,204,0.06);border:1px solid rgba(0,119,204,0.15);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;line-height:1.6">'+escHtml(a.situation_summary)+'</div>';
   (a.recommendations||[]).forEach(function(r,i){
-    var aud=r.audience&&audIcon[r.audience]?('<span style="color:var(--text-dim)">'+audIcon[r.audience]+escHtml(r.audience)+'｜</span>'):'';
+    var aKey=(r.audience==='民眾'||r.audience==='一般民眾')?'指揮官':r.audience;
+    var aud=aKey&&audIcon[aKey]?('<span style="color:var(--text-dim)">'+audIcon[aKey]+escHtml(aKey)+'｜</span>'):'';
     html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.6"><b>'+(i+1)+'.〔'+escHtml(r.priority||'')+'〕'+aud+escHtml(r.title||'')+'</b><br>'+escHtml(r.action||'')+'</div>';
   });
   html+='<div style="font-size:12px;color:var(--text-dim);margin-top:6px">＊點下方「完整 AI 建議」看詳細卡片與計畫書依據</div>';
@@ -1789,7 +1790,7 @@ async function generateAI(){
   var trafficCtx=tdxTrafficSummary?('\n\n【即時路況（TDX）】\n'+tdxTrafficSummary):'';
   var knowledge=getKnowledge().substring(0,10000);
   var procCtx=await buildProcedureContext(currentPlant.name+' '+buildSimContextText(), 3);
-  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+procCtx+'\n\n【★各等級對應措施（最高指導原則，所有建議必須符合目前等級，嚴禁超前）】\nT1緊急戒備：尚未輻射外釋、輻射屬背景正常。官方僅景點關閉、勸離遊客、交通管制、整備。對民眾【不疏散、不掩蔽、不發碘片】，只需留意官方消息。\nT2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。\nT4輻射外釋：依指示疏散。\n【作答步驟】先判斷目前事故等級（有時間軸以最新一筆為準）→對照上面該等級該做什麼→只給符合該等級的建議。若是T1，建議應為「留意消息、配合管制、無須掩蔽或疏散」，嚴禁出現「立即室內掩蔽」「疏散某里」等超前指令，可告知民眾輻射正常以安定民心。\n【★建議分對象】每條建議標 audience 欄位："指揮官"(決策層級,參考程序書【指揮官決策】)、"應變組織"(各組執行任務,參考【應變組織任務】,action指出哪個組)、"民眾"(直接給民眾的防護行動)。盡量三種對象都涵蓋(若該等級有對應行動)。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"audience":"指揮官/應變組織/民眾","priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書/程序書/國際標準","source_name":"來源名稱","source_chapter":"§X.X章節或程序書編號","source_text":"原文片段","is_external":false}]}';
+  var prompt='你是核子事故緊急應變決策支援AI，了解台灣道路地理。\n\n【即時數據】\n電廠：'+currentPlant.name+'\n輻射測站：'+stSummary+'\n最高值：'+maxVal.toFixed(3)+' μSv/h\n風向：'+windInfo+trafficCtx+buildSimContextText()+'\n\n【應變計畫書（'+knSrc+'）】\n'+knowledge+procCtx+'\n\n【★各等級對應措施（最高指導原則，所有建議必須符合目前等級，嚴禁超前）】\nT1緊急戒備：尚未輻射外釋、輻射屬背景正常。官方僅景點關閉、勸離遊客、交通管制、整備。對民眾【不疏散、不掩蔽、不發碘片】，只需留意官方消息。\nT2廠區緊急：EPZ0-3km預防疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：3-8km下風向疏散、其他掩蔽、防護站除污。\nT4輻射外釋：依指示疏散。\n【作答步驟】先判斷目前事故等級（有時間軸以最新一筆為準）→對照上面該等級該做什麼→只給符合該等級的建議。若是T1，建議應為「留意消息、配合管制、無須掩蔽或疏散」，嚴禁出現「立即室內掩蔽」「疏散某里」等超前指令，可告知民眾輻射正常以安定民心。\n【★建議分對象】每條建議標 audience 欄位，只分兩種："指揮官"(指揮層級決策——★凡牽涉民眾防護行動如是否疏散/掩蔽/發碘片/發警報、劃警戒區、交通管制、開設層級、資源調度都事關重大屬指揮官權責,參考程序書【指揮官決策】)、"應變組織"(各組奉令執行的任務,參考【應變組織任務】,action指出哪個組)。不要用"民眾"——對民眾的防護行動是指揮官決定、應變組織執行。盡量兩種對象都涵蓋。\n\n請輸出JSON，僅JSON不含說明：\n{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話說明","knowledge_source":"'+knSrc+'","recommendations":[{"audience":"指揮官/應變組織","priority":"緊急/高/中/低","title":"標題","action":"具體行動（2-3句）","reason":"判斷理由（1句）","source_type":"計畫書/程序書/國際標準","source_name":"來源名稱","source_chapter":"§X.X章節或程序書編號","source_text":"原文片段","is_external":false}]}';
   try{
     var text=await callAI([{role:'user',content:prompt}],3000,0.3,false,true); // jsonMode 強制合法 JSON
     try{
@@ -1811,14 +1812,14 @@ function renderRecommendations(data){
   // 對象標籤樣式
   var audMap={
     '指揮官':{bg:'rgba(220,38,38,0.1)',color:'#dc2626',border:'rgba(220,38,38,0.3)',icon:'⭐',label:'指揮官決策'},
-    '應變組織':{bg:'rgba(37,99,235,0.1)',color:'#2563eb',border:'rgba(37,99,235,0.3)',icon:'🛡',label:'應變組織任務'},
-    '民眾':{bg:'rgba(22,163,74,0.1)',color:'#16a34a',border:'rgba(22,163,74,0.25)',icon:'👥',label:'民眾防護'}
+    '應變組織':{bg:'rgba(37,99,235,0.1)',color:'#2563eb',border:'rgba(37,99,235,0.3)',icon:'🛡',label:'應變組織任務'}
   };
   var html='';
   if(data.situation_summary)html+='<div style="background:rgba(0,119,204,0.06);border:1px solid rgba(0,119,204,0.15);border-radius:6px;padding:10px 12px;margin-bottom:10px;font-size:14px;line-height:1.6;color:var(--text)">'+data.situation_summary+'</div>';
   var recs=(data.recommendations||[]);
-  // 依對象分組顯示：指揮官 → 應變組織 → 民眾 → 未標記
-  var order=['指揮官','應變組織','民眾'];
+  // 對象只分指揮官、應變組織；舊資料或AI誤回「民眾」一律歸入指揮官（民眾防護行動屬指揮官決策權責）
+  recs.forEach(function(r){ if(r.audience==='民眾'||r.audience==='一般民眾') r.audience='指揮官'; });
+  var order=['指揮官','應變組織'];
   var hasAudience=recs.some(function(r){return r.audience;});
   var groups={};
   recs.forEach(function(r){ var a=r.audience||'其他'; (groups[a]=groups[a]||[]).push(r); });
@@ -2991,13 +2992,13 @@ async function generateScenarioAdvice(situation){
     '　- T2 範例：draw 至少要有 野柳里(疏散)、龜吼里(疏散) 兩個 alert_boro，加上 3-8km 各掩蔽里的 alert_boro。\n' +
     '　- T1 不需疏散掩蔽，draw 不輸出 alert_boro。\n' +
     '請依計畫書和目前情境，給出符合該等級、真正必要的防護建議——該幾條就幾條，不必湊數。若該等級只需少數行動（例如 T1 只需留意消息、配合管制），就只給那幾條；不要為了湊數而加入超出當前等級的建議。\n' +
-    '【★建議分對象（重要）】每條建議都要標 audience 欄位，區分這條是給誰的：\n' +
-    '　- "指揮官"：屬於指揮層級的決策（開設層級、是否發布警報、是否下令疏散/掩蔽、CBS發送、資源調度核定等）。參考程序書中標【指揮官決策】的內容。\n' +
-    '　- "應變組織"：屬於各應變組織的執行任務（疏散撤離組規劃路線、監測中心發警報偵測、新聞組對外溝通、劑量評估組評估等）。參考程序書中標【應變組織任務】的內容，並在 action 指出是哪個組。\n' +
-    '　- "民眾"：直接給一般民眾的防護行動（掩蔽、疏散、服碘片、留意消息）。\n' +
-    '　請盡量三種對象都涵蓋到（若該等級有對應行動）；同一情境下指揮官決策、應變組織任務、民眾行動可並存。\n' +
+    '【★建議分對象（重要）】每條建議都要標 audience 欄位，只分兩種對象：\n' +
+    '　- "指揮官"：所有屬於指揮層級的決策。★特別注意：凡牽涉民眾的防護行動（是否疏散、是否室內掩蔽、是否發放/服用碘片、是否發布警報、劃設警戒區、交通管制決策、開設層級、資源調度核定、CBS發送下令）都事關重大，全部屬於指揮官決策權責，一律標"指揮官"。參考程序書中標【指揮官決策】的內容。\n' +
+    '　- "應變組織"：屬於各應變組織奉指揮官指令後的執行任務（疏散撤離組規劃路線及調度載具、輻射監測中心發放警報及偵測除污、新聞組對外溝通、劑量評估組評估劑量等）。參考程序書中標【應變組織任務】的內容，並在 action 指出是哪個組執行。\n' +
+    '　- 不要使用"民眾"作為對象。對民眾的防護行動（疏散/掩蔽/碘片）是「指揮官決定、應變組織執行」，請依此歸到指揮官或應變組織，不可標成民眾自己決定。\n' +
+    '　請盡量兩種對象都涵蓋到（若該等級有對應行動）。\n' +
     '輸出 JSON 格式（僅 JSON）：' +
-    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"audience":"指揮官/應變組織/民眾","priority":"緊急/高/中/低","title":"標題","action":"具體行動（應變組織需指出哪個組；指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書/程序書","source_name":"來源名稱","source_chapter":"§章節或程序書編號","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
+    '{"alert_level":"T0/T1/T2/T3","situation_summary":"一句話","knowledge_source":"內建版本","recommendations":[{"audience":"指揮官/應變組織","priority":"緊急/高/中/低","title":"標題","action":"具體行動（應變組織需指出哪個組；指出里名和路線名）","reason":"理由（1句）","source_type":"計畫書/程序書","source_name":"來源名稱","source_chapter":"§章節或程序書編號","source_text":"原文","is_external":false}],"draw":[]}\n\n' + AI_DRAW_RULE;
   var text = await callAI([{role:'user',content:prompt}],3000,0.25,false,true);
   return parseAIJSON(text);
 }
