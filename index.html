@@ -1670,18 +1670,26 @@ async function fetchWind(){
   try{
     var url='https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization='+CWA_KEY+'&StationId=C0A710&WeatherElement=WindDirection,WindSpeed';
     var res=await fetch(url,{signal:AbortSignal.timeout(8000)});
+    console.log('[fetchWind] HTTP 狀態:', res.status);
     var d=await res.json();
+    console.log('[fetchWind] 回傳結構:', d&&d.records?Object.keys(d.records):'(無 records)', d);
     var el=d&&d.records&&d.records.Station&&d.records.Station[0]&&d.records.Station[0].WeatherElement;
     if(el){
       var wd=null,ws=null;
       el.forEach(function(e){if(e.ElementName==='WindDirection')wd=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindDirection;if(e.ElementName==='WindSpeed')ws=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindSpeed;});
-      if(wd&&wd!=='-99'){windDir=parseFloat(wd);windSpeed=parseFloat(ws);updateWindDisplay(windDir,windSpeed,'萬里氣象站（C0A710）');return;}
+      console.log('[fetchWind] 解析到 風向=', wd, ' 風速=', ws);
+      if(wd&&wd!=='-99'){windDir=parseFloat(wd);windSpeed=parseFloat(ws);console.log('✅ [fetchWind] 成功使用萬里站即時風向', windDir, windSpeed);updateWindDisplay(windDir,windSpeed,'萬里氣象站（C0A710）');return;}
+      console.warn('⚠ [fetchWind] 有 WeatherElement 但風向值無效（-99 或空），走 fallback');
+    }else{
+      console.warn('⚠ [fetchWind] 找不到 records.Station[0].WeatherElement，API 結構可能已變更，走 fallback');
     }
-  }catch(e){}
+  }catch(e){
+    console.warn('⚠ [fetchWind] 請求失敗（逾時/CORS/網路），走 fallback。原因:', e&&e.name, e&&e.message);
+  }
   windDir=315;windSpeed=3.2;updateWindDisplay(315,3.2,'模擬資料（北偏西）');
 }
 function updateWindDisplay(deg,spd,stn){
-  var dirs=['北','北北東','北東','東北東','東','東南東','南東','南南東','南','南南西','南西','西南西','西','西北西','北西','北北西'];
+  var dirs=['北','北北東','東北','東北東','東','東南東','東南','南南東','南','南南西','西南','西南西','西','西北西','西北','北北西'];
   var dn=dirs[Math.round(deg/22.5)%16];
   var downName=dirs[Math.round(((deg+180)%360)/22.5)%16]; // 下風向＝污染飄去的方向
   var wv=document.getElementById('windValue');
