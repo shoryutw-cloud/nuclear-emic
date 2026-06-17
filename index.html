@@ -1673,16 +1673,25 @@ async function fetchWind(){
     console.log('[fetchWind] HTTP 狀態:', res.status);
     var d=await res.json();
     console.log('[fetchWind] 回傳結構:', d&&d.records?Object.keys(d.records):'(無 records)', d);
-    var el=d&&d.records&&d.records.Station&&d.records.Station[0]&&d.records.Station[0].WeatherElement;
-    if(el){
-      var wd=null,ws=null;
-      el.forEach(function(e){if(e.ElementName==='WindDirection')wd=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindDirection;if(e.ElementName==='WindSpeed')ws=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindSpeed;});
-      console.log('[fetchWind] 解析到 風向=', wd, ' 風速=', ws);
-      if(wd&&wd!=='-99'){windDir=parseFloat(wd);windSpeed=parseFloat(ws);console.log('✅ [fetchWind] 成功使用萬里站即時風向', windDir, windSpeed);updateWindDisplay(windDir,windSpeed,'萬里氣象站（C0A710）');return;}
-      console.warn('⚠ [fetchWind] 有 WeatherElement 但風向值無效（-99 或空），走 fallback');
-    }else{
-      console.warn('⚠ [fetchWind] 找不到 records.Station[0].WeatherElement，API 結構可能已變更，走 fallback');
+    var st0 = d&&d.records&&d.records.Station&&d.records.Station[0];
+    if(st0){ console.log('[fetchWind] Station[0] 欄位:', Object.keys(st0)); console.log('[fetchWind] Station[0] JSON:', JSON.stringify(st0).slice(0,1800)); }
+    var we = st0 && st0.WeatherElement;
+    var wd=null, ws=null;
+    if(Array.isArray(we)){
+      // 舊版結構：WeatherElement 為陣列 [{ElementName, ElementValue:[{WindDirection}]}]
+      we.forEach(function(e){if(e.ElementName==='WindDirection')wd=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindDirection;if(e.ElementName==='WindSpeed')ws=e.ElementValue&&e.ElementValue[0]&&e.ElementValue[0].WindSpeed;});
+    }else if(we && typeof we==='object'){
+      // 新版結構：WeatherElement 為物件，風向風速為直接欄位
+      wd = (we.WindDirection!=null) ? we.WindDirection : (we.WIND_DIREC!=null ? we.WIND_DIREC : null);
+      ws = (we.WindSpeed!=null) ? we.WindSpeed : (we.WDSD!=null ? we.WDSD : null);
     }
+    console.log('[fetchWind] 解析到 風向=', wd, ' 風速=', ws);
+    if(wd!=null && wd!=='' && String(wd)!=='-99' && !isNaN(parseFloat(wd))){
+      windDir=parseFloat(wd); windSpeed=(ws!=null&&!isNaN(parseFloat(ws)))?parseFloat(ws):3.0;
+      console.log('✅ [fetchWind] 成功使用萬里站即時風向', windDir, windSpeed);
+      updateWindDisplay(windDir,windSpeed,'萬里氣象站（C0A710）'); return;
+    }
+    console.warn('⚠ [fetchWind] 風向值無效或結構不符（看上面 Station[0] JSON 對照欄位名），走 fallback');
   }catch(e){
     console.warn('⚠ [fetchWind] 請求失敗（逾時/CORS/網路），走 fallback。原因:', e&&e.name, e&&e.message);
   }
