@@ -570,10 +570,10 @@ async function embedQuery(text){
   key = (key||'').trim() || sessionStorage.getItem('geminiKey') || '';
   if(!key) return null;
   try{
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key='+key;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key='+key;
     var res = await fetch(url, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({model:'models/text-embedding-004', content:{parts:[{text:text}]}})
+      body: JSON.stringify({model:'models/gemini-embedding-001', content:{parts:[{text:text}]}, outputDimensionality:768})
     });
     if(res.ok){
       var d = await res.json();
@@ -621,10 +621,10 @@ async function genEmbeddings(){
     var ok = false;
     for(var retry=0; retry<3 && !ok; retry++){
       try{
-        var url = 'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key='+key;
+        var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key='+key;
         var res = await fetch(url, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({model:'models/text-embedding-004', content:{parts:[{text:c.t}]}})
+          body: JSON.stringify({model:'models/gemini-embedding-001', content:{parts:[{text:c.t}]}, outputDimensionality:768})
         });
         if(res.ok){
           var d = await res.json();
