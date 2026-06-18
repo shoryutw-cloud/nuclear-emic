@@ -2080,6 +2080,9 @@ async function processRouteItems(routeItems) {
   }
 }
 
+// 記住上一輪是否在處理「集結點/防護站疏散路線」情境，供純追問（如「那路線呢」）延續判斷
+var _lastEvacRouteContext = false;
+
 // 偵測「畫出所有集結點→防護站路線」這類批次指令
 function isBatchEvacRouteQuery(q) {
   var meeting = /集結點|疏散點|集結/.test(q);
@@ -2088,7 +2091,14 @@ function isBatchEvacRouteQuery(q) {
   var allWord = /所有|全部|每個|各個|各集結|逐一|每一|各|個集結/.test(q);
   // 集結點→防護站的路線需求必然是批次（幾十條，AI 畫不出）：
   //  (集結點 + 防護站 + 路線/壅塞) 或 (所有/各 + 集結點 + 路線/壅塞)
-  return (meeting && shield && route) || (allWord && meeting && route);
+  if ((meeting && shield && route) || (allWord && meeting && route)) return true;
+  // 延續性：上一輪已在畫集結點/防護站疏散情境，這次是純路線/壅塞追問
+  //（例：「那路線呢?我要看哪邊會壅塞」），且未轉移到醫院/碘片等其他主題
+  if (_lastEvacRouteContext && route) {
+    var otherTopic = /醫院|輻傷|碘片|掩蔽|室內|收容所|安置/.test(q);
+    if (!otherTopic) return true;
+  }
+  return false;
 }
 
 // 偵測「標示／啟動某範圍集結點」這種純標示指令 → 程式直接閃爍，不靠 AI 輸出 alert_boro
@@ -2575,12 +2585,18 @@ async function sendQA() {
   if (batchEvac) {
     var kmMatch = q.match(/(\d+(?:\.\d+)?)\s*(?:KM|km|公里|公裏|千米)/);
     drawAllEvacRoutes(kmMatch ? parseFloat(kmMatch[1]) : 0);  // 0 = 全部集結點
+    _lastEvacRouteContext = true;  // 記住正在疏散路線情境，供下一輪純追問延續
   }
   // 純標示集結點 → 程式直接閃爍（不靠 AI 輸出 alert_boro，較可靠）
   var highlightEvac = !batchEvac && isHighlightMeetingsQuery(q);
   if (highlightEvac) {
     var kmM = q.match(/(\d+(?:\.\d+)?)\s*(?:KM|km|公里|公裏|千米)/);
     highlightMeetingsInRange(kmM ? parseFloat(kmM[1]) : 0, /掩蔽|室內/.test(q) ? '掩蔽' : '疏散');
+    _lastEvacRouteContext = true;  // 標示集結點也屬疏散情境
+  }
+  // 若這次明顯轉到其他主題（醫院/碘片/收容等），解除疏散路線延續情境
+  if (!batchEvac && !highlightEvac && /醫院|輻傷|碘片|收容所|安置/.test(q)) {
+    _lastEvacRouteContext = false;
   }
 
   // 2. 從 Sheet 讀最近3輪對話歷史
