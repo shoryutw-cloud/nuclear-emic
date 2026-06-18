@@ -798,6 +798,7 @@ var lastAlertTime = 0;
 var qaSessionId = Date.now().toString(36); // 本次對話唯一ID
 var lastBirdTime = 0;
 var alreadyBirdAlerted = false; // 超標狀態只觸發一次
+var lastOverKey = '';           // 上次超標的測站集合鍵（偵測是否有新測站或更高值超標）
 
 var PLAN_KNOWLEDGE = '【新北市核子事故區域民眾防護應變計畫】\n\nT1緊急戒備：停止大型活動、遊客勸離。\nT2廠區緊急：EPZ 0-3km預防性疏散、3-8km室內掩蔽、碘片發放。\nT3全面緊急：EPZ 3-8km下風向疏散、防護站除污啟動。\nT4輻射外釋：依指示疏散8km以外下風向民眾。\n\n§4.2 室內掩蔽：在家關緊門窗；戶外迅速返家；車內關窗改室內循環空調。\n\n§4.3 碘片：每人4日份，T2及以上依指示服用。\n\n§4.4 疏散路線（核二廠）：\n路線D：台2線→基隆→火車站\n路線E：台2線→基隆→台62線→國道1/3號\n路線F：台2線→石門→淡水→台64線\n路線G：台2線→基隆→台62線→國道1號→泰山五股\n\n§6.1 弱勢族群：醫院護理機構優先疏散，身障獨居長者有專屬程序。';
 
@@ -1646,10 +1647,11 @@ async function fetchFromSheets(){
 }
 function checkThresholds(data){
   var over=data.filter(function(s){return s.value>=THRESHOLD_WARN;});
+  console.log('[checkThresholds] 檢查', data.length, '站，超標(≥'+THRESHOLD_WARN+')', over.length, '站：', over.map(function(s){return s.name+'='+s.value;}).join('、'));
   // 數值回正常 → 重置旗標，下次超標才會再觸發
-  if(!over.length){ alreadyBirdAlerted=false; return; }
+  if(!over.length){ alreadyBirdAlerted=false; lastOverKey=''; return; }
   var now=Date.now();
-  // 警報冷卻：30分鐘
+  // 警報冷卻：30分鐘（瀏覽器通知）
   if(now-lastAlertTime >= 30*60*1000){
     lastAlertTime=now;
     if('Notification'in window&&Notification.permission==='granted'){
@@ -1657,13 +1659,18 @@ function checkThresholds(data){
       new Notification('⚠️ 輻射異常警報',{body:topN.name+'：'+topN.value.toFixed(3)+' μSv/h'});
     }
   }
-  // 鳥 AI：只在「首次進入超標狀態」觸發一次，不重複打擾
-  if(!alreadyBirdAlerted){
+  // 以「超標測站名稱+數值」組成鍵，偵測是否有新測站或數值變化
+  var overKey = over.map(function(s){return s.name+':'+s.value.toFixed(2);}).sort().join('|');
+  // 鳥 AI：首次進入超標狀態，或超標集合有變化（新測站／數值改變）時觸發
+  if(!alreadyBirdAlerted || overKey!==lastOverKey){
     alreadyBirdAlerted=true;
+    lastOverKey=overKey;
     var maxVal=over.reduce(function(m,s){return Math.max(m,s.value);},0);
     var stDesc=over.slice(0,3).map(function(s){return s.name+'('+s.value.toFixed(2)+'μSv/h)';}).join('、');
-    console.log('觸發鳥 AI（首次超標）：', stDesc);
+    console.log('✅ [checkThresholds] 觸發鳥 AI：', stDesc);
     triggerBirdAnalysis('Google Sheets 偵測到輻射超標：'+stDesc+'，最高值 '+maxVal.toFixed(2)+' μSv/h，超過警戒值 '+THRESHOLD_WARN+' μSv/h', over);
+  } else {
+    console.log('[checkThresholds] 超標集合未變化，不重複觸發（如需重觸發請等數值回正常或變動）');
   }
 }
 async function fetchWind(){
